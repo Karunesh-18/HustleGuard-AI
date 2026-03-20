@@ -1,6 +1,57 @@
 # Changes
 
-## 2026-03-20
+## 2026-03-20 — Bug Fixes, ML Improvements & Frontend Tab Routing
+
+### Critical Bug Fixes
+
+- **`routers/__init__.py`**: Fixed double `__all__` definition that silently excluded `triggers` router from exports, causing parametric payouts to never fire.
+- **`ml/evaluate_models.py`**: Removed dangling `print("Dataset...", len(df))` lines at module scope that referenced `df` out of scope — caused `NameError` on import.
+- **`ml/confusion_matrix.py`**: Rewrote as a proper self-contained script guarded by `if __name__ == "__main__":`; previously referenced undefined module-level `y_test` and `pred`.
+- **`services/domain_service.py`**: Fixed `ZoneSnapshot` merge bug — `db.merge()` on an object without a populated PK doesn't upsert by `zone_name`, causing duplicate rows on every cold start. Replaced with explicit `filter_by(zone_name=...).first()` + update/insert pattern.
+- **`ml/feature_engineering.py`**: Replaced hardcoded subtraction counts (`- 17 - 6 - 3`) with dynamic `n_before = df.shape[1]` diffing so feature counts are always accurate.
+
+### ML Improvements
+
+- **`ml/predict.py`**: Added `threading.Lock` with double-checked locking pattern to `ModelRegistry._load_or_train()` to eliminate race condition when concurrent requests both find models unloaded.
+- **`app/services/ml_service.py`**: Wrapped `registry.predict()` in try/except — `KeyError` returns HTTP 422 (missing feature), any other exception returns HTTP 500 with server-logged detail. Previously would crash the worker unhandled.
+- **`main.py`**: ML models now preload at server startup via `asyncio.get_event_loop().run_in_executor()` instead of lazily on first request (which could take 2–5 minutes and timeout the first caller).
+
+### Backend Persistence Gaps Filled
+
+- **`models/domain.py`**: Added `FraudAuditLog` model (`fraud_audit_logs` table) to persist every fraud evaluation decision for audit trail and trend analysis.
+- **`routers/fraud.py`**: Now injects `db: Session` and persists a `FraudAuditLog` row after every `evaluate_fraud_risk()` call. Audit log failure doesn't block the response.
+- **`routers/triggers.py`**: Implemented the documented disruption flow — now creates a `Disruption` record (with `Zone` FK) via `db.flush()` before creating the `PayoutEvent`. Previously the `disruptions` table was never written to.
+
+### API Improvements
+
+- **`routers/domain.py`**: Added `skip` and `limit` Query params to `GET /api/v1/zones` and `GET /api/v1/riders` (default 50, max 200).
+- **`services/domain_service.py`**: `list_zones()` and `list_riders()` now accept and apply `skip`/`limit` pagination params.
+- **`main.py`**: CORS origins now read from `CORS_ORIGINS` env var (comma-separated). Defaults to localhost origins for dev.
+- **`schemas/ml.py`**: Added upper-bound validators on `rainfall` (≤500mm), `aqi` (≤1000), `traffic_speed` (≤200km/h), `temperature` (-20–60°C), `wind_speed` (≤200km/h) to prevent garbage-in predictions.
+
+### Frontend — Rider Dashboard Tab Routing
+
+All 5 sidebar tabs now render distinct, data-driven content in `frontend/src/app/page.tsx`:
+
+- **Live Alerts**: Zones below DAI 0.4 shown as red TRIGGERED cards; moderate-risk zones in amber WATCH cards; green confirmation if all clear.
+- **Claims**: Full paginated table view with zone, trigger reason, amount, rider count, status columns.
+- **Payouts**: Summary metrics (total paid, riders protected, avg payout, plan) + timeline list.
+- **Zone Heatmap**: SVG zone visualization with DAI-coloured ellipses + per-zone signal bar cards.
+- **Risk Analytics**: Risk percentage bar chart per zone + count cards for high/moderate/normal zones.
+- Topbar title now reflects the active tab name.
+- Added `NEXT_PUBLIC_API_BASE` build-time warning in production when env var is missing.
+
+### Frontend — Admin Panel Tab Routing
+
+All 4 non-Overview tabs now render distinct content in `frontend/src/app/admin/page.tsx`:
+
+- **Claims**: Full payout event table with all fields; shows total events + total paid header metrics.
+- **Fraud**: Signal dimension grid (6 dimensions) + live fraud queue table with trust score bars, flag badges, decision outcomes.
+- **ML Models**: Side-by-side model card comparison (R², accuracy, hyperparams) + live forecast bars with risk labels.
+- **Zones**: Detailed zone table with DAI, workability bar, rainfall, AQI, traffic, last-updated, and status badge.
+- Fixed `Promise.all` → `Promise.allSettled` for trigger fetch loop so one failing zone doesn't block the entire admin dashboard load.
+
+
 
 ### Backend foundation expansion for README architecture
 

@@ -52,7 +52,11 @@ type HealthRead = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
+const _API_ENV = process.env.NEXT_PUBLIC_API_BASE;
+if (!_API_ENV && process.env.NODE_ENV === "production") {
+  console.error("[HustleGuard] NEXT_PUBLIC_API_BASE is not set — all API calls will fail in production.");
+}
+const API_BASE = _API_ENV ?? "http://127.0.0.1:8000";
 
 function zoneStatus(dai: number): "danger" | "warning" | "safe" {
   if (dai < 0.4) return "danger";
@@ -292,7 +296,7 @@ export default function RiderDashboard() {
       <main className="hg-main">
         {/* Topbar */}
         <div className="hg-topbar">
-          <div className="hg-topbar-title">Rider Dashboard</div>
+          <div className="hg-topbar-title">{activeNavItem}</div>
           <div className="hg-topbar-meta">
             Bangalore · Zone: {selectedZone?.zone_name ?? "–"}
           </div>
@@ -324,8 +328,286 @@ export default function RiderDashboard() {
             </div>
           )}
 
-          {/* Zone strip */}
-          {loading ? (
+          {/* ── Live Alerts Tab ── */}
+          {activeNavItem === "Live Alerts" && (
+            <div>
+              <div style={{ marginBottom: 16 }}>
+                <div className="hg-card-title" style={{ fontSize: 14, marginBottom: 4 }}>Active Zone Alerts</div>
+                <div style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>Zones currently below disruption threshold (DAI &lt; 0.4)</div>
+              </div>
+              {zones.filter(z => z.dai < 0.4).length === 0 && !loading ? (
+                <div className="hg-card" style={{ textAlign: "center", padding: 32 }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>✅</div>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>All Zones Normal</div>
+                  <div style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>No active disruption alerts at this time.</div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {zones.filter(z => z.dai < 0.4).map(z => (
+                    <div key={z.zone_name} className="hg-card" style={{ borderColor: "#E24B4A", background: "#FCEBEB" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ fontSize: 24 }}>🚨</div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, color: "#791F1F", marginBottom: 4 }}>{z.zone_name} — Disruption Active</div>
+                          <div style={{ fontSize: 12, color: "#A32D2D", display: "flex", gap: 16, flexWrap: "wrap" }}>
+                            <span>DAI: {z.dai.toFixed(2)}</span>
+                            <span>Rain: {z.rainfall_mm.toFixed(0)}mm</span>
+                            <span>AQI: {z.aqi}</span>
+                            <span>Traffic: {z.traffic_index}</span>
+                          </div>
+                        </div>
+                        <div style={{ background: "#E24B4A", color: "white", borderRadius: 8, padding: "4px 12px", fontSize: 11, fontWeight: 600 }}>TRIGGERED</div>
+                      </div>
+                    </div>
+                  ))}
+                  {zones.filter(z => z.dai >= 0.4 && z.dai < 0.65).map(z => (
+                    <div key={z.zone_name} className="hg-card" style={{ borderColor: "#EF9F27", background: "#FAEEDA" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ fontSize: 24 }}>⚠️</div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, color: "#633806", marginBottom: 4 }}>{z.zone_name} — Moderate Risk</div>
+                          <div style={{ fontSize: 12, color: "#854F0B", display: "flex", gap: 16, flexWrap: "wrap" }}>
+                            <span>DAI: {z.dai.toFixed(2)}</span>
+                            <span>Rain: {z.rainfall_mm.toFixed(0)}mm</span>
+                            <span>AQI: {z.aqi}</span>
+                          </div>
+                        </div>
+                        <div style={{ background: "#EF9F27", color: "white", borderRadius: 8, padding: "4px 12px", fontSize: 11, fontWeight: 600 }}>WATCH</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Claims Tab ── */}
+          {activeNavItem === "Claims" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontWeight: 600, marginBottom: 2 }}>Claims & Payout History</div>
+                  <div style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>All parametric trigger events and auto-payouts</div>
+                </div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <div className="hg-metric" style={{ padding: "8px 14px" }}>
+                    <div className="hg-metric-label">Total Paid</div>
+                    <div style={{ fontWeight: 600, fontSize: 16 }}>{fmtInr(payoutEvents.reduce((s, p) => s + p.payout_amount_inr, 0))}</div>
+                  </div>
+                  <div className="hg-metric" style={{ padding: "8px 14px" }}>
+                    <div className="hg-metric-label">Events</div>
+                    <div style={{ fontWeight: 600, fontSize: 16 }}>{payoutEvents.length}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="hg-card">
+                {payoutEvents.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: 32, color: "var(--color-text-tertiary)", fontSize: 13 }}>No claims recorded yet.</div>
+                ) : (
+                  <table className="hg-claims-table">
+                    <thead><tr><th>#</th><th>Date</th><th>Zone</th><th>Trigger</th><th>Amount</th><th>Riders</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {payoutEvents.map((p, i) => (
+                        <tr key={p.id}>
+                          <td style={{ color: "var(--color-text-tertiary)" }}>#{p.id}</td>
+                          <td style={{ color: "var(--color-text-secondary)" }}>{fmtTime(p.event_time)}</td>
+                          <td style={{ fontWeight: 500 }}>{p.zone_name}</td>
+                          <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.trigger_reason}</td>
+                          <td style={{ fontWeight: 600, color: "#1D9E75" }}>{fmtInr(p.payout_amount_inr)}</td>
+                          <td><span className="hg-badge hg-badge-approved">{p.eligible_riders} riders</span></td>
+                          <td><span className="hg-badge hg-badge-approved">Paid</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Payouts Tab ── */}
+          {activeNavItem === "Payouts" && (
+            <div>
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontWeight: 600, marginBottom: 2 }}>Payout Summary</div>
+                <div style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>Parametric payouts triggered by ML disruption model</div>
+              </div>
+              <div className="hg-metrics" style={{ marginBottom: 20 }}>
+                <div className="hg-metric">
+                  <div className="hg-metric-label">Total Paid Out</div>
+                  <div className="hg-metric-value">{fmtInr(payoutEvents.reduce((s, p) => s + p.payout_amount_inr, 0))}</div>
+                  <div className="hg-metric-sub">Across {payoutEvents.length} events</div>
+                </div>
+                <div className="hg-metric">
+                  <div className="hg-metric-label">Riders Protected</div>
+                  <div className="hg-metric-value">{payoutEvents.reduce((s, p) => s + p.eligible_riders, 0)}</div>
+                  <div className="hg-metric-sub">Unique recipients</div>
+                </div>
+                <div className="hg-metric">
+                  <div className="hg-metric-label">Avg Payout</div>
+                  <div className="hg-metric-value">{payoutEvents.length ? fmtInr(Math.round(payoutEvents.reduce((s, p) => s + p.payout_amount_inr, 0) / payoutEvents.length)) : "–"}</div>
+                  <div className="hg-metric-sub">Per event</div>
+                </div>
+                <div className="hg-metric">
+                  <div className="hg-metric-label">Your Plan</div>
+                  <div className="hg-metric-value" style={{ fontSize: 14 }}>{subscription?.plan_name ?? "No plan"}</div>
+                  <div className="hg-metric-sub">{subscription ? `₹${subscription.weekly_premium}/week` : "Not subscribed"}</div>
+                </div>
+              </div>
+              <div className="hg-card">
+                <div className="hg-card-title">Recent Payout Events</div>
+                {payoutEvents.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: 32, color: "var(--color-text-tertiary)" }}>No payout events yet. Subscribe to a plan to get covered.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {payoutEvents.map(p => (
+                      <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#1D9E75", flexShrink: 0 }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 500, fontSize: 13 }}>{p.zone_name}</div>
+                          <div style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>{p.trigger_reason}</div>
+                        </div>
+                        <div style={{ fontWeight: 600, color: "#1D9E75" }}>{fmtInr(p.payout_amount_inr)}</div>
+                        <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", minWidth: 60, textAlign: "right" }}>{fmtTime(p.event_time)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Zone Heatmap Tab ── */}
+          {activeNavItem === "Zone Heatmap" && (
+            <div>
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontWeight: 600, marginBottom: 2 }}>Zone Heatmap — Bangalore</div>
+                <div style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>Real-time delivery activity across all monitored zones</div>
+              </div>
+              <div className="hg-grid2" style={{ marginBottom: 16 }}>
+                <div className="hg-card">
+                  <div className="hg-card-title">Zone Map <span className="hg-card-tag">Live</span></div>
+                  <svg viewBox="0 0 400 220" style={{ width: "100%", height: 220, borderRadius: 8, background: "var(--color-background-secondary)" }}>
+                    {[
+                      { cx: 90, cy: 95, rx: 65, ry: 52, zone: "Koramangala" },
+                      { cx: 230, cy: 70, rx: 52, ry: 42, zone: "HSR Layout" },
+                      { cx: 330, cy: 130, rx: 48, ry: 36, zone: "Indiranagar" },
+                      { cx: 190, cy: 168, rx: 46, ry: 32, zone: "Electronic City" },
+                      { cx: 340, cy: 48, rx: 36, ry: 26, zone: "Whitefield" },
+                    ].map(b => {
+                      const zd = zones.find(z => z.zone_name.toLowerCase().includes(b.zone.toLowerCase().split(" ")[0]));
+                      const dai = zd?.dai ?? 0.5;
+                      const fill = dai < 0.4 ? "#F09595" : dai < 0.65 ? "#FAC775" : "#97C459";
+                      const tc = dai < 0.4 ? "#791F1F" : dai < 0.65 ? "#633806" : "#27500A";
+                      return (
+                        <g key={b.zone}>
+                          <ellipse cx={b.cx} cy={b.cy} rx={b.rx} ry={b.ry} fill={fill} opacity="0.75" />
+                          <text x={b.cx} y={b.cy - 4} textAnchor="middle" fontSize="9" fontWeight="600" fill={tc}>{b.zone}</text>
+                          <text x={b.cx} y={b.cy + 9} textAnchor="middle" fontSize="8" fill={tc}>DAI {dai.toFixed(2)}</text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+                  <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+                    {[{c:"#F09595",l:"Disrupted (<0.4)"},{c:"#FAC775",l:"Moderate (0.4–0.65)"},{c:"#97C459",l:"Normal (>0.65)"}].map(({c,l}) => (
+                      <div key={l} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "var(--color-text-tertiary)" }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 2, background: c }} />{l}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {zones.map(z => {
+                    const st = zoneStatus(z.dai);
+                    const bc = st === "danger" ? "#E24B4A" : st === "warning" ? "#EF9F27" : "#1D9E75";
+                    return (
+                      <div key={z.zone_name} className="hg-card" style={{ borderColor: bc }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                          <span style={{ fontWeight: 600, fontSize: 13 }}>{z.zone_name}</span>
+                          <span style={{ color: bc, fontWeight: 600, fontSize: 18 }}>{z.dai.toFixed(2)}</span>
+                        </div>
+                        <div className="hg-signals">
+                          {[
+                            { name: "Work", value: z.workability_score, max: 100, color: z.workability_score < 50 ? "#E24B4A" : "#1D9E75" },
+                            { name: "Rain", value: Math.min(z.rainfall_mm, 120), max: 120, color: z.rainfall_mm > 80 ? "#E24B4A" : "#1D9E75" },
+                            { name: "AQI", value: Math.min(z.aqi, 500), max: 500, color: z.aqi > 300 ? "#E24B4A" : "#1D9E75" },
+                          ].map(s => (
+                            <div key={s.name} className="hg-signal-row">
+                              <div className="hg-signal-name">{s.name}</div>
+                              <div className="hg-signal-bar-wrap"><div className="hg-signal-bar" style={{ width: `${(s.value / s.max) * 100}%`, background: s.color }} /></div>
+                              <div className="hg-signal-val">{Math.round(s.value)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Risk Analytics Tab ── */}
+          {activeNavItem === "Risk Analytics" && (
+            <div>
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontWeight: 600, marginBottom: 2 }}>Risk Analytics</div>
+                <div style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>Cross-zone risk signal breakdown and comparative analysis</div>
+              </div>
+              <div className="hg-metrics" style={{ marginBottom: 18 }}>
+                {["danger","warning","safe"].map(s => ({
+                  label: s === "danger" ? "High Risk Zones" : s === "warning" ? "Moderate Risk" : "Normal Zones",
+                  count: zones.filter(z => zoneStatus(z.dai) === s).length,
+                  color: s === "danger" ? "#E24B4A" : s === "warning" ? "#EF9F27" : "#1D9E75",
+                  bg: s === "danger" ? "#FCEBEB" : s === "warning" ? "#FAEEDA" : "#EAF3DE",
+                })).map(m => (
+                  <div key={m.label} className="hg-metric" style={{ borderColor: m.color, background: m.bg }}>
+                    <div className="hg-metric-label">{m.label}</div>
+                    <div className="hg-metric-value" style={{ color: m.color }}>{m.count}</div>
+                    <div className="hg-metric-sub">{zones.length} total zones</div>
+                  </div>
+                ))}
+                <div className="hg-metric">
+                  <div className="hg-metric-label">Avg DAI</div>
+                  <div className="hg-metric-value">{zones.length ? (zones.reduce((s, z) => s + z.dai, 0) / zones.length).toFixed(2) : "–"}</div>
+                  <div className="hg-metric-sub">City-wide index</div>
+                </div>
+              </div>
+              <div className="hg-card">
+                <div className="hg-card-title">Zone Risk Comparison</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 4 }}>
+                  {zones.map(z => {
+                    const st = zoneStatus(z.dai);
+                    const riskPct = Math.round((1 - z.dai) * 100);
+                    const riskColor = st === "danger" ? "#E24B4A" : st === "warning" ? "#EF9F27" : "#1D9E75";
+                    return (
+                      <div key={z.zone_name}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, fontSize: 12 }}>
+                          <span style={{ fontWeight: 500 }}>{z.zone_name}</span>
+                          <span style={{ color: riskColor, fontWeight: 600 }}>{riskPct}% risk</span>
+                        </div>
+                        <div style={{ height: 8, background: "var(--color-border-tertiary)", borderRadius: 4, overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${riskPct}%`, background: riskColor, borderRadius: 4, transition: "width 0.5s" }} />
+                        </div>
+                        <div style={{ display: "flex", gap: 16, marginTop: 4, fontSize: 10, color: "var(--color-text-tertiary)" }}>
+                          <span>Rain {z.rainfall_mm.toFixed(0)}mm</span>
+                          <span>AQI {z.aqi}</span>
+                          <span>Traffic {z.traffic_index}</span>
+                          <span>Work {z.workability_score.toFixed(0)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Dashboard Tab (default) ── */}
+          {(activeNavItem === "Dashboard" || !["Live Alerts","Claims","Payouts","Zone Heatmap","Risk Analytics"].includes(activeNavItem)) && (<>
+
+          {/* Zone strip — only on Dashboard */}
+          {activeNavItem === "Dashboard" && (loading ? (
             <div className="hg-zone-strip">
               {[1, 2, 3, 4, 5].map(i => (
                 <div key={i} className="hg-zone-pill hg-skeleton" style={{ height: 68 }} />
@@ -346,7 +628,7 @@ export default function RiderDashboard() {
                 );
               })}
             </div>
-          )}
+          ))}
 
           {/* Metric cards */}
           <div className="hg-metrics">
@@ -592,6 +874,7 @@ export default function RiderDashboard() {
               )}
             </div>
           </div>
+          </>)}
         </div>
       </main>
 
