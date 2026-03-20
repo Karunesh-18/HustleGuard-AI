@@ -9,6 +9,7 @@ def read_root(request: Request) -> dict[str, object]:
         "message": "FastAPI is running.",
         "database_ready": getattr(request.app.state, "database_ready", False),
         "database_error": getattr(request.app.state, "database_error", None),
+        "database_backend": getattr(request.app.state, "database_backend", "unknown"),
     }
 
 
@@ -18,4 +19,5 @@ def read_health(request: Request) -> dict[str, object]:
         "status": "ok",
         "database_ready": getattr(request.app.state, "database_ready", False),
         "database_error": getattr(request.app.state, "database_error", None),
+        "database_backend": getattr(request.app.state, "database_backend", "unknown"),
     }
