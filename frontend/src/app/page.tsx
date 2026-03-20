@@ -56,7 +56,7 @@ const _API_ENV = process.env.NEXT_PUBLIC_API_BASE;
 if (!_API_ENV && process.env.NODE_ENV === "production") {
   console.error("[HustleGuard] NEXT_PUBLIC_API_BASE is not set — all API calls will fail in production.");
 }
-const API_BASE = _API_ENV ?? "http://127.0.0.1:8000";
+const API_BASE = (_API_ENV ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
 
 function zoneStatus(dai: number): "danger" | "warning" | "safe" {
   if (dai < 0.4) return "danger";
