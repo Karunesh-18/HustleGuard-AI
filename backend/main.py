@@ -75,13 +75,13 @@ _CORS_ORIGINS_ENV = os.getenv(
     "CORS_ORIGINS",
     "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://192.168.29.121:3000",
 )
-_CORS_ORIGINS = [o.strip() for o in _CORS_ORIGINS_ENV.split(",") if o.strip()]
+_CORS_ORIGINS = [o.strip().rstrip("/") for o in _CORS_ORIGINS_ENV.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ORIGINS,
-    # Support local-network frontend hosts in development.
-    allow_origin_regex=r"http://192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$",
+    # Support local-network hosts in development and Vercel preview deployments.
+    allow_origin_regex=r"(http://192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$)|(https://.*\.vercel\.app$)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

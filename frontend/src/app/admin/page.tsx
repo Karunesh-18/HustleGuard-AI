@@ -34,7 +34,7 @@ type TriggerResponse = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
 
 function fmtInr(n: number): string {
   if (n >= 100000) return `₹${(n / 100000).toFixed(1)}L`;
@@ -58,7 +58,7 @@ export default function AdminPanel() {
   const [payouts, setPayouts] = useState<PayoutEventRead[]>([]);
   const [mlForecasts, setMlForecasts] = useState<TriggerResponse[]>([]);
   const [loading, setLoading] = useState(true);
-  const [liveTime, setLiveTime] = useState(new Date().toLocaleTimeString());
+  const [liveTime, setLiveTime] = useState("--:--:--");
 
   const fetchData = useCallback(async () => {
     setLoading(true);
