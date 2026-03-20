@@ -15,6 +15,13 @@ from app.routers import claims, domain, fraud, health, ml, users, triggers
 logger = logging.getLogger(__name__)
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.database_backend = "unknown"
@@ -38,16 +45,19 @@ async def lifespan(app: FastAPI):
             app.state.database_error = f"Primary error: {primary_error}; Fallback error: {fallback_exc}"
             app.state.database_backend = "unavailable"
 
-    # Preload ML models at startup in a thread pool to avoid blocking the event loop.
-    # Without this, models load on the first HTTP request which can take 2-5 minutes
-    # (training from scratch) and cause that request to time out.
-    try:
-        from ml import registry
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, registry._load_or_train)
-        logger.info("✓ ML models preloaded at startup")
-    except Exception as exc:
-        logger.warning(f"ML model preloading failed at startup (will retry on first request): {exc}")
+    # Keep cloud startup fast to satisfy platform port-binding checks.
+    # On Render we skip startup preload by default and allow first-request lazy load.
+    preload_ml = _env_bool("PRELOAD_ML_AT_STARTUP", default=(os.getenv("RENDER") is None))
+    if preload_ml:
+        try:
+            from ml import registry
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, registry._load_or_train)
+            logger.info("✓ ML models preloaded at startup")
+        except Exception as exc:
+            logger.warning(f"ML model preloading failed at startup (will retry on first request): {exc}")
+    else:
+        logger.info("Skipping ML preload at startup (PRELOAD_ML_AT_STARTUP disabled)")
 
     yield
 
