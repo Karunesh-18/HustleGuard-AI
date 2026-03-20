@@ -43,3 +43,7 @@ pnpm-debug.log*
 dist/
 build/
 backend/ml/models/*.pkl
+backend/ml/datasets/
+backend/ml/confusion_matrix.png
+backend/ml/feature_importance.png
+backend/ml/threshold_curves.png
