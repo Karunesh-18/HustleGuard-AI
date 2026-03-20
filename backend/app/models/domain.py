@@ -2,11 +2,11 @@
 
 The Rider model is defined in models/rider.py (unified with onboarding fields).
 This module re-exports it for convenience and adds Subscription, ZoneSnapshot,
-and PayoutEvent.
+PayoutEvent, and FraudAuditLog.
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, JSON
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -50,3 +50,22 @@ class PayoutEvent(Base):
     payout_amount_inr = Column(Float, nullable=False)
     eligible_riders = Column(Integer, nullable=False)
     event_time = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class FraudAuditLog(Base):
+    """Persists fraud evaluation decisions for audit trails and trend analysis."""
+
+    __tablename__ = "fraud_audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rider_id = Column(Integer, nullable=False, index=True)
+    zone_id = Column(Integer, nullable=False)
+    # Numeric trust score (0-100) from the fraud evaluation
+    trust_score = Column(Float, nullable=False)
+    # Decision band: green / yellow / orange / red
+    decision_band = Column(String, nullable=False, index=True)
+    # Decision string: instant_payout / provisional_payout_with_review / manual_review_required / hold_or_reject
+    decision = Column(String, nullable=False)
+    # Serialised list of reason strings
+    reasons = Column(String, nullable=False)  # JSON-encoded list
+    evaluated_at = Column(DateTime, nullable=False, default=datetime.utcnow)

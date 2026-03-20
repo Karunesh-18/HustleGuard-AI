@@ -2,13 +2,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class DisruptionPredictionRequest(BaseModel):
-    rainfall: float = Field(ge=0)
-    aqi: float = Field(alias="AQI", ge=0)
-    traffic_speed: float = Field(ge=0)
-    current_dai: float = Field(ge=0, le=1)
+    rainfall: float = Field(ge=0, le=500, description="Rainfall in mm, capped at 500mm")
+    aqi: float = Field(alias="AQI", ge=0, le=1000, description="Air Quality Index (0–1000)")
+    traffic_speed: float = Field(ge=0, le=200, description="Average traffic speed in km/h")
+    current_dai: float = Field(ge=0, le=1, description="Current Delivery Activity Index (0.0–1.0)")
 
-    temperature: float = Field(default=30.0)
-    wind_speed: float = Field(default=10.0, ge=0)
+    temperature: float = Field(default=30.0, ge=-20, le=60, description="Temperature in °C")
+    wind_speed: float = Field(default=10.0, ge=0, le=200, description="Wind speed in km/h")
     congestion_index: float = Field(default=0.5, ge=0, le=1)
 
     orders_last_5min: float = Field(default=70.0, ge=0)

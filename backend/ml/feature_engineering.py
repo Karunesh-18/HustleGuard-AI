@@ -271,22 +271,29 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     
     logger.info(f"\nInput shape: {df.shape}")
     
+    n_start = df.shape[1]
+
+    n_before = df.shape[1]
     df = create_temporal_features(df)
-    logger.info(f"✓ Temporal features added: {df.shape[1] - 17} new features")
-    
+    logger.info(f"✓ Temporal features added: {df.shape[1] - n_before} new features")
+
+    n_before = df.shape[1]
     df = create_rolling_features(df)
-    logger.info(f"✓ Rolling features added: {df.shape[1] - 17 - 6} new features")
-    
+    logger.info(f"✓ Rolling features added: {df.shape[1] - n_before} new features")
+
+    n_before = df.shape[1]
     df = create_interaction_features(df)
-    logger.info(f"✓ Interaction features added: {df.shape[1] - 17 - 6 - 3} new features")
-    
+    logger.info(f"✓ Interaction features added: {df.shape[1] - n_before} new features")
+
+    n_before = df.shape[1]
     df = create_zone_features(df)
-    logger.info(f"✓ Zone features added: {df.shape[1] - 17 - 6 - 3 - 5} new features")
-    
+    logger.info(f"✓ Zone features added: {df.shape[1] - n_before} new features")
+
+    n_before = df.shape[1]
     df = create_derived_features(df)
-    logger.info(f"✓ Derived features added: {df.shape[1] - 17 - 6 - 3 - 5 - 3} new features")
-    
-    logger.info(f"\nFinal shape: {df.shape} (added {df.shape[1] - 17} features)")
+    logger.info(f"✓ Derived features added: {df.shape[1] - n_before} new features")
+
+    logger.info(f"\nFinal shape: {df.shape} (added {df.shape[1] - n_start} features)")
     logger.info(f"Feature list:\n{list(df.columns)}")
     
     return df
