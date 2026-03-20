@@ -1,6 +1,3 @@
-from . import claims, domain, fraud, health, ml, users, triggers
+from . import claims, domain, fraud, health, ml, triggers, users
 
-__all__ = ["claims", "domain", "fraud", "health", "ml", "users", "triggers"]
-
-
-__all__ = ["health", "ml", "users", "fraud", "claims", "domain"]
+__all__ = ["claims", "domain", "fraud", "health", "ml", "triggers", "users"]

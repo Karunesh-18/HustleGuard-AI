@@ -61,18 +61,28 @@ def get_zone_live_data(db: Session) -> list[ZoneLiveDataRead]:
             for row in rows
         ]
     # Seed demo data into DB so subsequent calls use real data
+    # Use explicit upsert-by-zone_name to avoid duplicate rows on cold start
     now = datetime.now(tz=timezone.utc)
     for d in _DEMO_ZONES:
-        snap = ZoneSnapshot(
-            zone_name=d["zone_name"],
-            rainfall_mm=d["rainfall_mm"],
-            aqi=d["aqi"],
-            traffic_index=d["traffic_index"],
-            dai=d["dai"],
-            workability_score=d["workability_score"],
-            updated_at=now,
-        )
-        db.merge(snap)
+        existing = db.query(ZoneSnapshot).filter_by(zone_name=d["zone_name"]).first()
+        if existing:
+            existing.rainfall_mm = d["rainfall_mm"]
+            existing.aqi = d["aqi"]
+            existing.traffic_index = d["traffic_index"]
+            existing.dai = d["dai"]
+            existing.workability_score = d["workability_score"]
+            existing.updated_at = now
+        else:
+            snap = ZoneSnapshot(
+                zone_name=d["zone_name"],
+                rainfall_mm=d["rainfall_mm"],
+                aqi=d["aqi"],
+                traffic_index=d["traffic_index"],
+                dai=d["dai"],
+                workability_score=d["workability_score"],
+                updated_at=now,
+            )
+            db.add(snap)
     try:
         db.commit()
     except Exception:
@@ -179,8 +189,8 @@ def create_zone(db: Session, zone_in: ZoneCreate) -> Zone:
     return zone
 
 
-def list_zones(db: Session) -> list[Zone]:
-    return db.query(Zone).order_by(Zone.id.asc()).all()
+def list_zones(db: Session, skip: int = 0, limit: int = 50) -> list[Zone]:
+    return db.query(Zone).order_by(Zone.id.asc()).offset(skip).limit(limit).all()
 
 
 def create_rider(db: Session, rider_in: RiderCreate) -> Rider:
@@ -197,8 +207,8 @@ def create_rider(db: Session, rider_in: RiderCreate) -> Rider:
     return rider
 
 
-def list_riders(db: Session) -> list[Rider]:
-    return db.query(Rider).order_by(Rider.id.asc()).all()
+def list_riders(db: Session, skip: int = 0, limit: int = 50) -> list[Rider]:
+    return db.query(Rider).order_by(Rider.id.asc()).offset(skip).limit(limit).all()
 
 
 def compute_workability_score(rainfall: float, aqi: float, traffic_speed: float, zone_dai: float) -> float:

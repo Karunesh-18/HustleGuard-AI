@@ -43,10 +43,15 @@ async def create_zone_endpoint(zone_in: ZoneCreate, request: Request, db: Sessio
 
 
 @router.get("/zones", response_model=list[ZoneRead])
-async def list_zones_endpoint(request: Request, db: Session = Depends(get_db)) -> list[ZoneRead]:
+async def list_zones_endpoint(
+    request: Request,
+    skip: int = Query(default=0, ge=0, description="Number of records to skip"),
+    limit: int = Query(default=50, ge=1, le=200, description="Max records to return"),
+    db: Session = Depends(get_db),
+) -> list[ZoneRead]:
     if not getattr(request.app.state, "database_ready", False):
         raise HTTPException(status_code=503, detail="Database is unavailable.")
-    return [ZoneRead.model_validate(z) for z in list_zones(db)]
+    return [ZoneRead.model_validate(z) for z in list_zones(db, skip=skip, limit=limit)]
 
 
 @router.get("/zones/workability")
@@ -77,10 +82,15 @@ async def create_rider_endpoint(rider_in: RiderCreate, request: Request, db: Ses
 
 
 @router.get("/riders", response_model=list[RiderRead])
-async def list_riders_endpoint(request: Request, db: Session = Depends(get_db)) -> list[RiderRead]:
+async def list_riders_endpoint(
+    request: Request,
+    skip: int = Query(default=0, ge=0, description="Number of records to skip"),
+    limit: int = Query(default=50, ge=1, le=200, description="Max records to return"),
+    db: Session = Depends(get_db),
+) -> list[RiderRead]:
     if not getattr(request.app.state, "database_ready", False):
         raise HTTPException(status_code=503, detail="Database is unavailable.")
-    return [RiderRead.model_validate(r) for r in list_riders(db)]
+    return [RiderRead.model_validate(r) for r in list_riders(db, skip=skip, limit=limit)]
 
 
 # ─── Rider onboard (frontend-compatible alias) ────────────────────────────────

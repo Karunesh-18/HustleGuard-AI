@@ -1,6 +1,8 @@
 import logging
 from datetime import datetime, timezone
 
+from fastapi import HTTPException
+
 from app.schemas import DisruptionPredictionRequest, DisruptionPredictionResponse
 from ml import registry
 
@@ -16,6 +18,7 @@ def predict_disruption(payload: DisruptionPredictionRequest) -> DisruptionPredic
         "wind_speed": payload.wind_speed,
         "aqi": payload.aqi,
         "average_traffic_speed": payload.traffic_speed,
+        # MODEL_2_FEATURES uses "traffic_speed" — keep both keys so either lookup succeeds
         "traffic_speed": payload.traffic_speed,
         "congestion_index": payload.congestion_index,
         "orders_last_5min": payload.orders_last_5min,
@@ -29,14 +32,26 @@ def predict_disruption(payload: DisruptionPredictionRequest) -> DisruptionPredic
         "zone_risk_score": payload.zone_risk_score,
     }
 
-    predicted_dai, disruption_probability = registry.predict(feature_map)
+    try:
+        predicted_dai, disruption_probability = registry.predict(feature_map)
+    except KeyError as exc:
+        logger.error(f"Missing feature in prediction input: {exc}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Missing required model feature: {exc}",
+        ) from exc
+    except Exception as exc:
+        logger.error(f"ML prediction failed: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="ML prediction service unavailable — see server logs.",
+        ) from exc
 
     risk_label = "normal"
     if disruption_probability >= 0.50:
         risk_label = "high"
     elif disruption_probability >= 0.40:  # matches threshold_analysis.json optimal threshold
         risk_label = "moderate"
-
 
     logger.info(
         f"Prediction | rainfall={payload.rainfall:.1f}mm AQI={payload.aqi:.0f} "

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import joblib
@@ -16,24 +17,33 @@ class ModelRegistry:
     def __init__(self) -> None:
         self._dai_model = None
         self._disruption_model = None
+        # Lock prevents race condition when two concurrent requests both find
+        # models unloaded and both attempt to trigger training simultaneously.
+        self._lock = threading.Lock()
 
     def _load_or_train(self) -> None:
+        # Fast path: both models already loaded (no lock needed)
         if self._dai_model is not None and self._disruption_model is not None:
             return
 
-        MODEL_DIR.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            # Double-checked locking: another thread may have loaded by now
+            if self._dai_model is not None and self._disruption_model is not None:
+                return
 
-        if DAI_MODEL_FILE.exists() and DISRUPTION_MODEL_FILE.exists():
-            self._dai_model = joblib.load(DAI_MODEL_FILE)
-            self._disruption_model = joblib.load(DISRUPTION_MODEL_FILE)
-            return
+            MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-        trained: TrainedModels = train_pipeline_models()
-        self._dai_model = trained.dai_model
-        self._disruption_model = trained.disruption_model
+            if DAI_MODEL_FILE.exists() and DISRUPTION_MODEL_FILE.exists():
+                self._dai_model = joblib.load(DAI_MODEL_FILE)
+                self._disruption_model = joblib.load(DISRUPTION_MODEL_FILE)
+                return
 
-        joblib.dump(self._dai_model, DAI_MODEL_FILE)
-        joblib.dump(self._disruption_model, DISRUPTION_MODEL_FILE)
+            trained: TrainedModels = train_pipeline_models()
+            self._dai_model = trained.dai_model
+            self._disruption_model = trained.disruption_model
+
+            joblib.dump(self._dai_model, DAI_MODEL_FILE)
+            joblib.dump(self._disruption_model, DISRUPTION_MODEL_FILE)
 
     def predict(self, features: dict[str, float]) -> tuple[float, float]:
         self._load_or_train()

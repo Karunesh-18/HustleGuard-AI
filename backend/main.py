@@ -1,3 +1,6 @@
+import asyncio
+import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -5,19 +8,46 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import models as _models
-from app.database import Base, engine
+from app import database as app_database
+from app.database import Base
 from app.routers import claims, domain, fraud, health, ml, users, triggers
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.state.database_backend = "unknown"
     try:
-        Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(bind=app_database.engine)
         app.state.database_ready = True
         app.state.database_error = None
+        app.state.database_backend = "primary"
     except SQLAlchemyError as exc:
-        app.state.database_ready = False
-        app.state.database_error = str(exc)
+        primary_error = str(exc)
+        try:
+            app_database.enable_sqlite_fallback()
+            Base.metadata.create_all(bind=app_database.engine)
+            app.state.database_ready = True
+            app.state.database_error = (
+                f"Primary database unavailable. Using SQLite fallback. Primary error: {primary_error}"
+            )
+            app.state.database_backend = "sqlite-fallback"
+        except SQLAlchemyError as fallback_exc:
+            app.state.database_ready = False
+            app.state.database_error = f"Primary error: {primary_error}; Fallback error: {fallback_exc}"
+            app.state.database_backend = "unavailable"
+
+    # Preload ML models at startup in a thread pool to avoid blocking the event loop.
+    # Without this, models load on the first HTTP request which can take 2-5 minutes
+    # (training from scratch) and cause that request to time out.
+    try:
+        from ml import registry
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, registry._load_or_train)
+        logger.info("✓ ML models preloaded at startup")
+    except Exception as exc:
+        logger.warning(f"ML model preloading failed at startup (will retry on first request): {exc}")
 
     yield
 
@@ -29,14 +59,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow Next.js dev server and any deployed frontend origin
+# CORS — origins configurable via CORS_ORIGINS env var for production deployments.
+# Defaults to localhost dev origins if env var is not set.
+_CORS_ORIGINS_ENV = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://192.168.29.121:3000",
+)
+_CORS_ORIGINS = [o.strip() for o in _CORS_ORIGINS_ENV.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-    ],
+    allow_origins=_CORS_ORIGINS,
+    # Support local-network frontend hosts in development.
+    allow_origin_regex=r"http://192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -25,3 +25,5 @@ pred = model.predict(X_test)
 
 print("Accuracy:", accuracy_score(y_test, pred))
 print(classification_report(y_test, pred))
+
+# Note: Run this file directly as a script: python evaluate_models.py
