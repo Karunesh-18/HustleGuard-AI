@@ -78,3 +78,58 @@ Future APIs should follow versioning:
 
 /api/v1/users
 /api/v2/users
+
+## Implemented ML Endpoint
+
+Endpoint:
+POST /predict-disruption
+
+Purpose:
+- Predict future DAI for a zone
+- Predict disruption probability
+- Return a qualitative risk label
+
+Required request fields:
+- rainfall (float, >= 0)
+- AQI (float, >= 0)
+- traffic_speed (float, >= 0)
+- current_dai (float, 0 to 1)
+
+Optional request fields (defaults applied by backend):
+- temperature
+- wind_speed
+- congestion_index
+- orders_last_5min
+- orders_last_15min
+- active_riders
+- average_delivery_time
+- hour_of_day
+- day_of_week
+- historical_disruption_frequency
+- zone_risk_score
+
+Response fields:
+- predicted_dai (0 to 1)
+- disruption_probability (0 to 1)
+- risk_label (normal, moderate, high)
+
+Status codes:
+- 200 on successful prediction
+- 422 on request validation failure
+
+Example request:
+
+{
+  "rainfall": 92,
+  "AQI": 110,
+  "traffic_speed": 12,
+  "current_dai": 0.41
+}
+
+Example response:
+
+{
+  "predicted_dai": 0.29,
+  "disruption_probability": 0.81,
+  "risk_label": "high"
+}
