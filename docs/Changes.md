@@ -1,5 +1,42 @@
 # Changes
 
+## 2026-03-20
+
+### Backend foundation expansion for README architecture
+
+- Implemented core persistence models for `zones`, `riders`, `orders`, `disruptions`, `claims`, and `payouts` in `backend/app/models/`.
+- Added anti-spoofing fraud evaluation API: `POST /api/v1/fraud/evaluate`.
+- Added claim decisioning API: `POST /api/v1/claims/evaluate-and-create` with trust-score based routing.
+- Added domain APIs:
+  - `POST /api/v1/zones`, `GET /api/v1/zones`
+  - `GET /api/v1/zones/workability`
+  - `POST /api/v1/riders`, `GET /api/v1/riders`
+- Implemented weighted fraud trust score service with signal breakdown across:
+  - environmental consistency
+  - DAI-zone consistency
+  - behavioral continuity
+  - motion realism
+  - IP/network consistency
+  - peer coordination safety
+- Implemented decision bands and actions:
+  - Green -> instant payout
+  - Yellow -> provisional payout with review
+  - Orange -> manual review required
+  - Red -> hold or reject
+- Added claim persistence plus payout creation for instant/provisional decision bands.
+- Wired all new routers into `backend/main.py` and exported schemas/services/models for package-level imports.
+- Verified syntax and imports with `python -m compileall app main.py models.py` from backend directory.
+
+### README: Adversarial defense strategy update
+
+- Added a dedicated and judge-focused `Adversarial Defense & Anti-Spoofing Strategy` section to `Readme.md`.
+- Clarified that GPS and IP are both non-authoritative when used alone.
+- Documented a multi-layer fraud defense model combining environmental, behavioral, DAI, motion, network, and peer-correlation signals.
+- Added `Device Integrity Signals` guidance (developer mode, mock location, rooted/emulator checks) as probabilistic risk inputs.
+- Added an explicit fraud trust score framework and decision thresholds for payout routing.
+- Added a concrete weighted Fraud Trust Score example table with sample signal values and computed outcomes.
+- Strengthened UX fairness logic with soft-flagging, provisional payouts, and appeal workflows to reduce false-positive harm.
+
 ## 2026-03-16
 
 ### Phase 2: Feature Engineering – COMPLETED

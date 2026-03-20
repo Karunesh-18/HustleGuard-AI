@@ -5,7 +5,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app import models as _models
 from app.database import Base, engine
-from app.routers import health, users
+from app.routers import claims, domain, fraud, health, ml, users
 
 
 @asynccontextmanager
@@ -25,3 +25,7 @@ app = FastAPI(lifespan=lifespan)
 
 app.include_router(health.router)
 app.include_router(users.router)
+app.include_router(ml.router)
+app.include_router(fraud.router)
+app.include_router(claims.router)
+app.include_router(domain.router)

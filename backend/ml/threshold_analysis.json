@@ -1,0 +1,100 @@
+{
+  "roc_auc": 1.0,
+  "pr_auc": 1.0,
+  "default_threshold_metrics": [
+    {
+      "threshold": 0.3,
+      "precision": 0.9992867332382311,
+      "recall": 1.0,
+      "f1_score": 0.9996432393863718,
+      "specificity": 0.9998837074078382,
+      "tn": 8598,
+      "fp": 1,
+      "fn": 0,
+      "tp": 1401
+    },
+    {
+      "threshold": 0.4,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "specificity": 1.0,
+      "tn": 8599,
+      "fp": 0,
+      "fn": 0,
+      "tp": 1401
+    },
+    {
+      "threshold": 0.5,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "specificity": 1.0,
+      "tn": 8599,
+      "fp": 0,
+      "fn": 0,
+      "tp": 1401
+    },
+    {
+      "threshold": 0.6,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "specificity": 1.0,
+      "tn": 8599,
+      "fp": 0,
+      "fn": 0,
+      "tp": 1401
+    },
+    {
+      "threshold": 0.7,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "specificity": 1.0,
+      "tn": 8599,
+      "fp": 0,
+      "fn": 0,
+      "tp": 1401
+    }
+  ],
+  "optimal_f1": {
+    "threshold": 0.4,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1_score": 1.0,
+    "specificity": 1.0,
+    "tn": 8599,
+    "fp": 0,
+    "fn": 0,
+    "tp": 1401
+  },
+  "optimal_fp_minimizing": {
+    "threshold": 0.4,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1_score": 1.0,
+    "specificity": 1.0,
+    "tn": 8599,
+    "fp": 0,
+    "fn": 0,
+    "tp": 1401
+  },
+  "optimal_fn_minimizing": {
+    "threshold": 0.3,
+    "precision": 0.9992867332382311,
+    "recall": 1.0,
+    "f1_score": 0.9996432393863718,
+    "specificity": 0.9998837074078382,
+    "tn": 8598,
+    "fp": 1,
+    "fn": 0,
+    "tp": 1401
+  },
+  "recommendation": {
+    "default": 0.5,
+    "recommended": 0.4,
+    "business_context": "If false positives (over-compensation) are expensive, lower threshold; if false negatives (missed disruptions) are costly, raise threshold.",
+    "recommended_for_production": 0.4
+  }
+}
