@@ -32,10 +32,11 @@ def predict_disruption(payload: DisruptionPredictionRequest) -> DisruptionPredic
     predicted_dai, disruption_probability = registry.predict(feature_map)
 
     risk_label = "normal"
-    if disruption_probability >= 0.75:
+    if disruption_probability >= 0.50:
         risk_label = "high"
-    elif disruption_probability >= 0.45:
+    elif disruption_probability >= 0.40:  # matches threshold_analysis.json optimal threshold
         risk_label = "moderate"
+
 
     logger.info(
         f"Prediction | rainfall={payload.rainfall:.1f}mm AQI={payload.aqi:.0f} "
