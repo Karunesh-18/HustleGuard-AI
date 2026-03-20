@@ -1,0 +1,59 @@
+{
+  "model_1": {
+    "original_features": [
+      "rainfall",
+      "temperature",
+      "wind_speed",
+      "aqi",
+      "average_traffic_speed",
+      "congestion_index",
+      "orders_last_5min",
+      "orders_last_15min",
+      "active_riders",
+      "average_delivery_time",
+      "hour_of_day",
+      "day_of_week"
+    ],
+    "recommended_features": [
+      "aqi",
+      "average_traffic_speed",
+      "orders_last_5min",
+      "rainfall"
+    ],
+    "dropped_count": 8,
+    "redundant_pairs": [
+      [
+        "orders_last_5min",
+        "orders_last_15min",
+        0.9362564215225788
+      ]
+    ]
+  },
+  "model_2": {
+    "original_features": [
+      "rainfall",
+      "aqi",
+      "wind_speed",
+      "traffic_speed",
+      "congestion_index",
+      "current_dai",
+      "predicted_dai",
+      "historical_disruption_frequency",
+      "zone_risk_score"
+    ],
+    "recommended_features": [
+      "current_dai",
+      "predicted_dai",
+      "rainfall",
+      "traffic_speed"
+    ],
+    "dropped_count": 5,
+    "redundant_pairs": [
+      [
+        "current_dai",
+        "predicted_dai",
+        0.988466590036157
+      ]
+    ]
+  }
+}

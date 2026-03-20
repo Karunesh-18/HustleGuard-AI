@@ -1,0 +1,91 @@
+{
+  "timestamp": "2026-03-16T01:29:28.655712",
+  "models": [
+    {
+      "model_type": "DAI_Regression",
+      "best_params": {
+        "n_estimators": 250,
+        "min_samples_split": 2,
+        "min_samples_leaf": 1,
+        "max_features": "log2",
+        "max_depth": null
+      },
+      "cv_r2": 0.92835018061394,
+      "val_r2": 0.9329865731734953,
+      "train_r2": 0.9904154325661303,
+      "param_grid": {
+        "n_estimators": [
+          100,
+          250,
+          500
+        ],
+        "max_depth": [
+          10,
+          15,
+          20,
+          null
+        ],
+        "min_samples_split": [
+          2,
+          5,
+          10
+        ],
+        "min_samples_leaf": [
+          1,
+          2,
+          4
+        ],
+        "max_features": [
+          "sqrt",
+          "log2"
+        ]
+      }
+    },
+    {
+      "model_type": "Disruption_Classification",
+      "best_params": {
+        "n_estimators": 250,
+        "min_samples_split": 2,
+        "min_samples_leaf": 1,
+        "max_features": "log2",
+        "max_depth": 15,
+        "class_weight": "balanced"
+      },
+      "cv_f1": 0.9988293505915677,
+      "val_accuracy": 0.9979946524064172,
+      "train_accuracy": 1.0,
+      "param_grid": {
+        "n_estimators": [
+          100,
+          250,
+          500
+        ],
+        "max_depth": [
+          10,
+          15,
+          20,
+          null
+        ],
+        "min_samples_split": [
+          2,
+          5,
+          10
+        ],
+        "min_samples_leaf": [
+          1,
+          2,
+          4
+        ],
+        "max_features": [
+          "sqrt",
+          "log2"
+        ],
+        "class_weight": [
+          null,
+          "balanced",
+          "balanced_subsample"
+        ]
+      }
+    }
+  ]
+}
