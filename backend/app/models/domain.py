@@ -1,3 +1,9 @@
+"""Domain models for live data, subscriptions, and payout events.
+
+The Rider model is defined in models/rider.py (unified with onboarding fields).
+This module re-exports it for convenience and adds Subscription, ZoneSnapshot,
+and PayoutEvent.
+"""
 from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String
@@ -5,19 +11,8 @@ from sqlalchemy.orm import relationship
 
 from app.database import Base
 
-
-class Rider(Base):
-    __tablename__ = "riders"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    email = Column(String, nullable=False, unique=True, index=True)
-    city = Column(String, nullable=False)
-    home_zone = Column(String, nullable=False)
-    reliability_score = Column(Integer, nullable=False, default=60)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-
-    subscriptions = relationship("Subscription", back_populates="rider", cascade="all, delete-orphan")
+# Re-export the unified Rider from rider.py (single definition)
+from app.models.rider import Rider  # noqa: F401
 
 
 class Subscription(Base):
@@ -30,7 +25,7 @@ class Subscription(Base):
     active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
-    rider = relationship("Rider", back_populates="subscriptions")
+    rider = relationship("Rider", foreign_keys=[rider_id])
 
 
 class ZoneSnapshot(Base):
