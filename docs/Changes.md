@@ -17,6 +17,7 @@
   - backend deployment on Render
   - frontend deployment on Vercel
   - CORS/env integration checklist and smoke tests
+- Fixed Render startup timeout risk in `backend/main.py` by making ML preload configurable with `PRELOAD_ML_AT_STARTUP` and skipping preload by default on Render so the web process can bind `$PORT` quickly.
 
 ## 2026-03-20 — Bug Fixes, ML Improvements & Frontend Tab Routing
 
