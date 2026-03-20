@@ -825,6 +825,60 @@ The long-term goal is to create financial resilience for gig workers while enabl
 - Geospatial zone heat mapping
 - Real-time rider telemetry
 
+## Deployment (Vercel + Render)
+
+This monorepo is set up for:
+
+- Frontend on Vercel (`frontend/`)
+- Backend API on Render (`backend/`)
+
+### 1. Deploy backend to Render
+
+Render is preconfigured via `render.yaml`.
+
+1. In Render, create a new Blueprint from this GitHub repository.
+2. Confirm the generated service points to `backend/`.
+3. Set required environment variables:
+
+   - `DATABASE_URL`: Neon PostgreSQL connection string
+   - `CORS_ORIGINS`: comma-separated origins (include your Vercel URL)
+     - Example: `https://your-app.vercel.app,http://localhost:3000`
+
+4. Deploy and copy the public Render backend URL.
+
+Default start command used:
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
+Health check endpoint:
+
+```text
+GET /health
+```
+
+### 2. Deploy frontend to Vercel
+
+1. Import this repository in Vercel.
+2. Set **Root Directory** to `frontend`.
+3. Add environment variable:
+
+   - `NEXT_PUBLIC_API_BASE`: your Render backend URL
+     - Example: `https://hustleguard-backend.onrender.com`
+
+4. Deploy.
+
+### 3. CORS + integration checklist
+
+- Add your final Vercel URL to Render's `CORS_ORIGINS`.
+- Keep `NEXT_PUBLIC_API_BASE` pointed at your Render backend URL.
+- Verify both URLs are HTTPS in production.
+- Smoke test:
+  - Frontend page loads
+  - `/health` responds `status: ok`
+  - Dashboard live-data calls return 200
+
 ## Documentation
 
 - [Architecture Guide](docs/Architecture.md) - System design and component overview

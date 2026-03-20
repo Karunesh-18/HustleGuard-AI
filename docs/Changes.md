@@ -1,5 +1,23 @@
 # Changes
 
+## 2026-03-20 — Deployment Readiness (Vercel + Render)
+
+- Added Render Blueprint config in `render.yaml` for backend deployment:
+  - `rootDir: backend`
+  - build command: `pip install -r requirements.txt`
+  - start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+  - env vars placeholders for `DATABASE_URL` and `CORS_ORIGINS`
+- Added `backend/runtime.txt` to pin Python runtime (`python-3.11.10`) for consistent cloud builds.
+- Added backend environment template `backend/.env.example` with production-ready keys:
+  - `DATABASE_URL`
+  - `CORS_ORIGINS`
+- Added frontend environment template `frontend/.env.example` with:
+  - `NEXT_PUBLIC_API_BASE`
+- Updated `Readme.md` with a full deployment runbook for:
+  - backend deployment on Render
+  - frontend deployment on Vercel
+  - CORS/env integration checklist and smoke tests
+
 ## 2026-03-20 — Bug Fixes, ML Improvements & Frontend Tab Routing
 
 ### Critical Bug Fixes
