@@ -42,3 +42,4 @@ pnpm-debug.log*
 # Build artifacts
 dist/
 build/
+backend/ml/models/*.pkl
