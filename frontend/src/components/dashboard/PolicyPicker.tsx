@@ -46,7 +46,7 @@ export function PolicyPicker({
             key={p.name}
             className="policy-card"
             style={{
-              borderColor: isCurrent ? colors.accent : "var(--color-border-tertiary)",
+              borderColor: isCurrent ? colors.accent : "var(--border-md)",
               boxShadow: isCurrent ? `0 0 0 1.5px ${colors.accent}` : undefined,
             }}
           >
@@ -122,8 +122,8 @@ function FeatureChip({ enabled, label }: { enabled: boolean; label: string }) {
     <span
       className="feature-chip"
       style={{
-        background: enabled ? "#EAF3DE" : "var(--color-background-elevated)",
-        color: enabled ? "#27500A" : "var(--color-text-tertiary)",
+        background: enabled ? "#EAF3DE" : "var(--bg-raised)",
+        color: enabled ? "#27500A" : "var(--text-tertiary)",
         textDecoration: enabled ? undefined : "line-through",
         opacity: enabled ? 1 : 0.6,
       }}

@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app import models as _models
 from app import database as app_database
 from app.database import Base
-from app.routers import claims, domain, fraud, health, ml, policies, users, triggers
+from app.routers import admin, claims, domain, fraud, health, ml, payments, policies, users, triggers
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,36 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Skipping ML preload at startup (PRELOAD_ML_AT_STARTUP disabled)")
 
+    # ── Background zone refresh ───────────────────────────────────────────────
+    # Refreshes synthetic zone conditions every 5 minutes using the simulation
+    # service so premiums quoted at onboarding reflect current time-of-day risk.
+    zone_refresh_interval = int(os.getenv("ZONE_REFRESH_INTERVAL_SECONDS", "300"))
+
+    async def _zone_refresh_loop() -> None:
+        await asyncio.sleep(10)  # short delay so startup completes first
+        while True:
+            try:
+                from app.database import SessionLocal
+                from app.services.zone_simulation_service import refresh_all_zones
+                db = SessionLocal()
+                try:
+                    refresh_all_zones(db)
+                finally:
+                    db.close()
+            except Exception as exc:
+                logger.warning(f"Background zone refresh failed: {exc}")
+            await asyncio.sleep(zone_refresh_interval)
+
+    task = asyncio.create_task(_zone_refresh_loop())
+    logger.info(f"✓ Background zone refresh started (interval={zone_refresh_interval}s)")
+
     yield
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(
@@ -88,8 +117,14 @@ _CORS_ORIGINS = [o.strip().rstrip("/") for o in _CORS_ORIGINS_ENV.split(",") if 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ORIGINS,
-    # Support local-network hosts in development and Vercel preview deployments.
-    allow_origin_regex=r"(http://192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$)|(https://.*\.vercel\.app$)",
+    # Support localhost, LAN hosts, and Vercel previews in development/deployments.
+    allow_origin_regex=(
+        r"https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$"
+        r"|https?://192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$"
+        r"|https?://10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$"
+        r"|https?://172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(:\d+)?$"
+        r"|https://.*\.vercel\.app$"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -103,6 +138,8 @@ app.include_router(claims.router)
 app.include_router(domain.router)
 app.include_router(triggers.router)
 app.include_router(policies.router)
+app.include_router(payments.router)
+app.include_router(admin.router)
 
 
 # ─── Bare /zones/live-data and /payouts/recent aliases ─────────────────────

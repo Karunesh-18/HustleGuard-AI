@@ -59,6 +59,24 @@ COMMUNITY_THRESHOLD = 5
 # Default payout amounts if no policy is configured
 _DEFAULT_COMMUNITY_PAYOUT_INR = 500.0
 
+# Community trust score tiers — more riders = stronger evidence = higher trust.
+# Rationale: 5 GPS-verified riders in the same zone is credible but warrants review;
+# 8+ is as strong as a solo parametric trigger; 12+ exceeds typical sensor reliability.
+COMMUNITY_TRUST_TIERS: list[tuple[int, float, str]] = [
+    # (min_riders, trust_score, decision)
+    (12, 90.0, "instant_payout"),
+    (8,  82.0, "instant_payout"),
+    (5,  75.0, "provisional_payout_with_review"),
+]
+
+
+def _community_trust_for_count(rider_count: int) -> tuple[float, str]:
+    """Return (trust_score, decision) for a given community rider count."""
+    for min_riders, trust, decision in COMMUNITY_TRUST_TIERS:
+        if rider_count >= min_riders:
+            return trust, decision
+    return 75.0, "provisional_payout_with_review"
+
 
 # ── Helper: Build FraudEvaluationRequest from common distress/partial fields ──
 
@@ -220,8 +238,20 @@ def create_partial_disruption_claim(
     thresholds = get_trigger_thresholds_for_rider(db, payload.rider_id)
     base_payout = thresholds["payout_inr"]
 
-    # Prorate: the worse the DAI, the higher the payout ratio
-    normal_dai = max(payload.normal_dai, 1e-6)  # avoid division by zero
+    # Look up zone's baseline DAI from the zones table.
+    # Using 1.0 as the normal_dai was over-compensating riders in zones with a
+    # naturally lower baseline. A zone running at 70 DAI normally would pay out
+    # too much if we assumed 100 was normal.
+    zone_row = db.query(Zone).filter(Zone.id == payload.zone_id).first()
+    if zone_row is not None and zone_row.baseline_orders_per_hour > 0:
+        # Normalise against 100 orders/hour as a reference max
+        inferred_normal_dai = min(1.0, zone_row.baseline_orders_per_hour / 100.0)
+    else:
+        inferred_normal_dai = 1.0
+
+    # Allow the caller to override if they have a better baseline estimate;
+    # default is now zone-derived rather than blindly 1.0
+    normal_dai = max(payload.normal_dai if payload.normal_dai != 1.0 else inferred_normal_dai, 1e-6)
     payout_ratio = max(0.0, 1.0 - (payload.current_dai / normal_dai))
     prorated_payout = round(base_payout * payout_ratio, 2)
 
@@ -328,10 +358,11 @@ def evaluate_community_claim(
             zone_id=zone.id,
             claim_type=CLAIM_TYPE_COMMUNITY,
             community_trigger_count=rider_count,
-            # Community claims get a baseline trust score of 75 (provisional)
-            trust_score=75.0,
-            decision="provisional_payout_with_review",
-            status="provisional_payout_with_review",
+            # Trust score scales with number of rider signals — more riders = stronger evidence.
+            # See COMMUNITY_TRUST_TIERS for the tier thresholds and rationale.
+            **({"trust_score": _community_trust_for_count(rider_count)[0],
+               "decision": _community_trust_for_count(rider_count)[1],
+               "status": _community_trust_for_count(rider_count)[1]}),
             reasons=trigger_reason,
         )
         db.add(claim)

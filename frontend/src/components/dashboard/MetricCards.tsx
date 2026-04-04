@@ -36,13 +36,13 @@ export function MetricCards({
       label: "Total Payout",
       value: totalPayout > 0 ? fmtInr(totalPayout) : "—",
       sub: `${payoutCount} events`,
-      subColor: "var(--color-text-tertiary)",
+      subColor: "var(--text-tertiary)",
     },
     {
       label: "Reliability",
       value: riderReliability != null ? `${riderReliability}/100` : "—",
       sub: "Trust score",
-      subColor: "var(--color-text-tertiary)",
+      subColor: "var(--text-tertiary)",
     },
   ];
 
