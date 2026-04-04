@@ -88,3 +88,78 @@ export type Toast = {
   message: string;
   zone?: string;
 };
+
+// ── ML Premium Quoting ────────────────────────────────────────────────────────
+
+export type ZoneConditionsSnapshot = {
+  rainfall_mm: number;
+  aqi: number;
+  traffic_index: number;
+  dai: number;
+};
+
+export type PolicyQuotedPlan = {
+  policy_id: number;
+  policy_name: string;
+  base_premium_inr: number;
+  quoted_premium_inr: number;
+  risk_multiplier: number;
+  payout_per_disruption_inr: number;
+  dai_trigger_threshold: number;
+  max_claims_per_week: number;
+  supports_partial_disruption: boolean;
+  supports_community_claims: boolean;
+  waiting_period_days: number;
+};
+
+export type PolicyQuoteResponse = {
+  zone_name: string;
+  risk_label: "normal" | "moderate" | "high";
+  disruption_probability: number;
+  predicted_dai: number;
+  risk_multiplier: number;
+  zone_conditions: ZoneConditionsSnapshot;
+  plans: PolicyQuotedPlan[];
+};
+
+// ── Claims ────────────────────────────────────────────────────────────────────
+
+export type ClaimRead = {
+  id: number;
+  rider_id: number;
+  zone_id: number;
+  status: string;
+  trust_score: number;
+  decision: string;
+  reasons: string;
+  claim_type: ClaimType;
+  distress_reason?: string;
+  base_payout_inr?: number;
+  partial_payout_ratio?: number;
+  current_dai_at_claim?: number;
+  community_trigger_count?: number;
+  appeal_of_claim_id?: number;
+  appeal_status?: string;
+  created_at: string;
+};
+
+// ── ML Prediction ─────────────────────────────────────────────────────────────
+
+export type DisruptionPredictionResponse = {
+  predicted_dai: number;
+  disruption_probability: number;
+  risk_label: "normal" | "moderate" | "high";
+};
+
+// ── Policy Recommendation ─────────────────────────────────────────────────────
+
+export type PolicyRecommendation = {
+  recommended_plan: PolicyQuotedPlan;
+  reason: string;
+  risk_label: "normal" | "moderate" | "high";
+  disruption_probability: number;
+  claim_count_30d: number;
+  reliability_score: number;
+  zone_name: string;
+  quote: PolicyQuoteResponse;
+};

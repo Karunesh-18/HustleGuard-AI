@@ -167,14 +167,18 @@ async def list_rider_claims(
     skip: int = 0,
     limit: int = 50,
 ) -> list[ClaimRead]:
-    """Return all claims filed by a rider, newest first."""
+    """Return all claims filed by a rider, newest first. Returns empty list if rider has no claims."""
     _require_db(request)
-    claims = (
-        db.query(Claim)
-        .filter(Claim.rider_id == rider_id)
-        .order_by(Claim.created_at.desc())
-        .offset(skip)
-        .limit(min(limit, 200))
-        .all()
-    )
-    return [ClaimRead.model_validate(c) for c in claims]
+    try:
+        claims = (
+            db.query(Claim)
+            .filter(Claim.rider_id == rider_id)
+            .order_by(Claim.created_at.desc())
+            .offset(skip)
+            .limit(min(limit, 200))
+            .all()
+        )
+        return [ClaimRead.model_validate(c) for c in claims]
+    except Exception as exc:
+        logger.warning(f"Failed to fetch claims for rider {rider_id}: {exc}")
+        return []
