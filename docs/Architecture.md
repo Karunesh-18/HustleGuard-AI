@@ -1,209 +1,209 @@
 # Architecture
 
-This document describes the technical architecture of HustleGuard AI.
+HustleGuard AI is a parametric insurance platform protecting gig delivery workers
+from income loss caused by measurable external disruptions.
 
-It is intended for developers and AI coding agents contributing to the project.
-
-## Overview
-
-HustleGuard AI is a parametric insurance platform that protects gig delivery workers from income loss caused by external disruptions.
-
-The system continuously monitors:
-
-- Weather conditions
-- Air Quality Index (AQI)
-- Traffic congestion
-- Government alerts
-- Delivery ecosystem activity
-
-When disruptions significantly reduce delivery activity in a zone, the system automatically triggers insurance payouts.
+---
 
 ## Core Idea
 
-Traditional insurance requires manual claims.
+Traditional insurance requires manual claims. HustleGuard uses **parametric triggers** —
+pre-defined measurable thresholds that fire automatically:
 
-HustleGuard uses **parametric triggers**.
+```
+Rainfall > 80mm  AND  DAI < 40%  →  payout triggered automatically
+```
 
-Example trigger:
+This enables instant settlement, transparent rules, and ML-driven fraud detection.
 
-Rainfall > 80mm AND Delivery Activity Index < 40% → payout triggered
-
-This enables:
-
-- instant claim settlement
-- transparent rules
-- fraud-resistant payouts
+---
 
 ## Technology Stack
 
-## Frontend
-- Next.js (TypeScript)
-- Vanilla CSS (Custom Design System in `globals.css`)
-- Custom SVG components (Heatmaps and Analytics)
+### Frontend
+- **Next.js 15** (TypeScript, App Router, `output: 'export'` for Capacitor)  
+- Vanilla CSS custom design system (`globals.css`)
+- **Capacitor** for Android APK wrapping
+- Route-based architecture: mobile shell for riders, sidebar for admin
 
-## Backend
-- FastAPI (Python)
-- Celery (background workers)
-- Redis (task queue)
+### Backend
+- **FastAPI** (Python 3.11+)
+- **asyncio** background loop for zone monitoring (no Celery/Redis — in-process)
+- SQLAlchemy ORM (async-compatible)
+- Pydantic v2 for schema validation
 
-## Database
-- Neon PostgreSQL
-- PostGIS extension for spatial queries
+### Database
+- **Neon PostgreSQL** (serverless, connection pooling via pgbouncer)
+- PostGIS extension for future spatial queries
+- SQLAlchemy `pool_pre_ping` enabled to handle idle connections
 
-## APIs
-- OpenWeather API
-- AQI API
-- Google Maps Traffic API
-- News API
+### ML Pipeline
+- scikit-learn RandomForest (Phase 2 models)
+- Models pre-loaded at startup via `asyncio.get_event_loop().run_in_executor()`
+- Feature contracts enforced via `backend/ml/feature_contracts.py`
 
-## High Level Architecture
+---
 
-```text
-External Data Sources
-│
-├ Weather API
-├ AQI API
-├ Traffic API
-└ News Alerts
-│
-▼
-Disruption Detection Engine
-│
-▼
-Delivery Activity Index Engine
-│
-▼
-Risk Evaluation Engine
-│
-▼
-Parametric Insurance Engine
-│
-▼
-Automatic Payout System
-│
-▼
-Worker Dashboard & Admin Dashboard
+## System Architecture
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                        Zone Simulation Engine                   │
+│        Bangalore zone risk profiles + time-of-day patterns      │
+│        Refreshes every 5 min via asyncio background loop        │
+└──────────────────────────┬─────────────────────────────────────┘
+                           │ zone conditions (rainfall, AQI, traffic)
+                           ▼
+┌────────────────────────────────────────────────────────────────┐
+│                     ML Prediction Pipeline                      │
+│  Model 1: RandomForestRegressor → predicted_dai (0.0–1.0)     │
+│  Model 2: RandomForestClassifier → disruption_probability      │
+│  Feature contracts: ml/feature_contracts.py                     │
+└──────────────────────────┬─────────────────────────────────────┘
+                           │ risk_label + disruption_probability
+                           ▼
+┌────────────────────────────────────────────────────────────────┐
+│                    Insurance Decision Engine                    │
+│                                                                 │
+│  ┌─────────────────────┐   ┌───────────────────────────────┐  │
+│  │   Parametric Trigger │   │      ML Premium Quoting       │  │
+│  │  POST /triggers/eval │   │  POST /api/v1/policies/quote  │  │
+│  └──────────┬──────────┘   └──────────────┬────────────────┘  │
+│             │                              │                    │
+│             ▼                              ▼                    │
+│  ┌─────────────────────┐   ┌───────────────────────────────┐  │
+│  │    Fraud Engine      │   │    Risk Multiplier (1.0×–1.45×)│  │
+│  │  6-layer trust score │   │    + Reliability discount      │  │
+│  └──────────┬──────────┘   └──────────────────────────────┘  │
+│             │                                                   │
+│             ▼                                                   │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │              Payout Decision (trust score bands)         │  │
+│  │  ≥80 → instant   55–79 → provisional   <35 → hold       │  │
+│  └─────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+              ┌────────────────────────┐
+              │     Neon PostgreSQL     │
+              │ zones, riders, claims,  │
+              │ payouts, rider_policies │
+              └────────────────────────┘
+                           │
+                           ▼
+         ┌─────────────────────────────────┐
+         │        Next.js Frontend          │
+         │  Rider: mobile app (bottom nav)  │
+         │  Admin: sidebar dashboard        │
+         └─────────────────────────────────┘
 ```
 
-## Key Components
+---
 
-## Disruption Detection Engine
+## Backend Layer Architecture
 
-Monitors environmental signals every 5 minutes.
+```
+routers → services → models → database
+```
 
-Signals monitored:
-
-- rainfall
-- air pollution
-- traffic congestion
-- emergency alerts
+| Layer | Responsibility |
+|---|---|
+| **Routers** | HTTP endpoints only — no DB queries |
+| **Services** | Business logic, fraud evaluation, ML calls |
+| **Models** | SQLAlchemy table definitions |
+| **Schemas** | Pydantic request/response validation |
 
 ---
 
-## Delivery Activity Index (DAI)
+## Background Monitoring (asyncio)
 
-Measures delivery ecosystem activity.
+The zone refresh loop runs inside the FastAPI `lifespan` context:
 
-Formula:
+```python
+async def _zone_refresh_loop():
+    while True:
+        await asyncio.sleep(ZONE_REFRESH_INTERVAL_SECONDS)
+        await refresh_all_zones(db_session)   # re-generates conditions, re-scores DAI
+```
 
-DAI = Current Orders / Expected Orders
+**Failure handling**: The loop catches all exceptions and logs them — a single
+bad refresh cycle does not kill the web process. The next cycle runs on schedule.
+No payouts are triggered by this loop; it only updates `zone_snapshots`.
 
-Example:
-
-Expected Orders = 120/hour  
-Current Orders = 35/hour  
-
-DAI = 35 / 120 = 0.29 (29%)
-
-Low DAI indicates disruption.
-
----
-
-## Fraud Detection System
-
-Fraud checks include:
-
-- GPS location validation
-- zone verification
-- duplicate claim detection
-- abnormal activity detection
+`ZONE_REFRESH_INTERVAL_SECONDS` defaults to `300` (5 min), configurable via env.
 
 ---
 
-## Delivery Ecosystem Simulation
+## Zone Simulation Engine
 
-Since delivery platform APIs are unavailable, the system simulates:
+`backend/app/services/zone_simulation_service.py` generates synthetic but
+realistic Bangalore zone conditions for each named delivery zone:
 
-- rider locations
-- order generation
-- delivery completion
+- **Zone risk profiles**: Koramangala (flood-prone), Whitefield (AQI/traffic),
+  Indiranagar (calm), HSR Layout (moderate), Electronic City (mixed)
+- **Time-of-day patterns**: Afternoon monsoon peaks, rush-hour gridlock, night calm
+- **ML integration**: Each zone's conditions feed the disruption classifier to
+  derive a live DAI estimate
 
-Simulation allows controlled testing of disruptions.
+**Admin override**: `POST /api/v1/admin/simulate-disruption` forces extreme
+conditions in a specific zone for live demo purposes.
 
-## Background Monitoring
+---
 
-Monitoring tasks run every 5 minutes using Celery workers.
+## ML Premium Quoting Flow
 
-Responsibilities:
+```
+Rider selects Home Zone
+        │
+POST /api/v1/policies/quote
+        │
+fetch zone_snapshot for zone
+        │
+ML Model 2 → disruption_probability
+        │
+risk_label: normal|moderate|high
+        │
+price multiplier: 1.0× | 1.2× | 1.45×
+        │
+reliability_score discount (±₹5)
+        │
+return quoted premiums for all tiers
+        │
+frontend shows single auto-selected plan
+  with ML conditions (rain/AQI/DAI) visible
+```
 
-- fetch external data
-- compute DAI
-- detect disruptions
-- trigger payouts
+---
 
-## Maps
+## Frontend Architecture
 
-Two map layers are used:
+### Rider App (Mobile-first)
+- `(app)/layout.tsx` wraps pages with mobile chrome (status bar, bottom nav)
+- 4 pages: `/home` | `/alerts` | `/claims` | `/profile`
+- Onboarding wizard at `/onboard` (separate, no shell)
 
-## Disruption Heatmap
-Shows current disruption intensity.
+### Admin Dashboard (Desktop-first)
+- `admin/layout.tsx` provides sidebar navigation + PIN auth gate
+- 4 sections: Overview | Zones | Claims & Fraud | ML Models
+- PIN stored in `sessionStorage` — cleared on browser close
 
-Colors:
-
-Green → normal  
-Yellow → moderate disruption  
-Red → severe disruption
-
-## Insurance Risk Map
-Displays zone insurance risk levels.
-
-Risk is calculated from historical disruption data.
-
-## Dashboard
-
-## Worker Dashboard
-
-Workers can view:
-
-- active coverage
-- disruption alerts
-- payout history
-- predicted earnings
-
-## Admin Dashboard
-
-Admins can monitor:
-
-- disruption heatmaps
-- claim analytics
-- fraud alerts
-- zone risk levels
+---
 
 ## Deployment
 
-Recommended deployment setup:
+| Component | Platform |
+|---|---|
+| Frontend | Vercel (`output: 'export'`) |
+| Android | Capacitor + `out/` directory |
+| Backend | Render (FastAPI via Uvicorn) |
+| Database | Neon PostgreSQL |
+| Background jobs | asyncio (in-process, no external queue) |
 
-Frontend → Vercel  
-Backend → FastAPI server  
-Database → Neon PostgreSQL  
-Queue → Redis  
-Workers → Celery
+---
 
 ## Design Principles
 
-The system follows these principles:
-
-- automation-first insurance
-- multi-signal disruption detection
-- hyperlocal risk modeling
-- transparent claim triggers
+- **Automation-first** — zero rider effort for parametric payouts
+- **Multi-signal disruption detection** — ML + environmental + community signals
+- **Hyperlocal risk modeling** — zone-level pricing, not city-level
+- **Transparent triggers** — riders see exactly why a payout fired or didn't

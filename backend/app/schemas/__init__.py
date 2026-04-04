@@ -21,11 +21,16 @@ from .domain import (
     PremiumCalculateResponse,
     TriggerEvaluateRequest,
     TriggerEvaluateResponse,
-    # New policy schemas
+    # Policy schemas
     PolicyRead,
     RiderPolicyCreate,
     RiderPolicyRead,
-    # New claim type schemas
+    # ML quote schemas
+    PolicyQuoteRequest,
+    PolicyQuoteResponse,
+    PolicyQuotedPlan,
+    ZoneConditionsSnapshot,
+    # Claim type schemas
     ManualDistressClaimRequest,
     ManualDistressClaimResponse,
     PartialDisruptionClaimRequest,

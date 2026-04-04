@@ -48,18 +48,31 @@ class ModelRegistry:
     def predict(self, features: dict[str, float]) -> tuple[float, float]:
         self._load_or_train()
 
-        model_1_input = pd.DataFrame([{name: features[name] for name in MODEL_1_FEATURES}])
+        # ── Model 1: predict future DAI ─────────────────────────────────────────
+        model_1_input = pd.DataFrame(
+            [{name: features.get(name, 0.0) for name in MODEL_1_FEATURES}]
+        )
         predicted_dai = float(self._dai_model.predict(model_1_input)[0])
         predicted_dai = max(0.0, min(1.0, predicted_dai))
 
-        model_2_source = {name: features[name] for name in MODEL_2_FEATURES if name != "predicted_dai"}
+        # ── Model 2: predict disruption probability ──────────────────────────────
+        # Build source dict using .get() so missing optional features default to 0.0
+        # rather than raising KeyError. predicted_dai comes from Model 1's output.
+        model_2_source: dict[str, float] = {
+            name: features.get(name, 0.0)
+            for name in MODEL_2_FEATURES
+            if name != "predicted_dai"
+        }
         model_2_source["predicted_dai"] = predicted_dai
-        model_2_input = pd.DataFrame([model_2_source])[MODEL_2_FEATURES]
+
+        # Reindex columns to exactly match training order — fills any gap with 0.
+        model_2_input = pd.DataFrame([model_2_source]).reindex(columns=MODEL_2_FEATURES, fill_value=0.0)
 
         disruption_probability = float(self._disruption_model.predict_proba(model_2_input)[0][1])
         disruption_probability = max(0.0, min(1.0, disruption_probability))
 
         return predicted_dai, disruption_probability
+
 
 
 registry = ModelRegistry()

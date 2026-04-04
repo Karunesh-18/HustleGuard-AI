@@ -1,5 +1,32 @@
 # Changes
 
+## 2026-04-04 — Dynamic Policy Recommendations, Razorpay Integration & Home Page Redesign
+
+### Dynamic Policy Recommendation & Razorpay Onboarding
+- **ML-Driven Recommendations**: Removed static plan choices from the profile. Implemented a new `/api/v1/policies/recommend/{rider_id}` endpoint that dynamically recommends exactly one plan based on the user's home zone ML risk, reliability score, and recent claim history.
+- **Razorpay Integration**: Integrated real Razorpay checkout for policy enrollment. Upon passing the recommendation screen and accepting T&Cs, the rider pays the dynamically calculated initial premium (via UPI/Test mode), and their policy is activated in the backend. 
+- **Apply Page Flow**: Added a sophisticated `/apply` flow with recommendation rationale, feature breakdown, terms and conditions, and a seamless payment success state. Includes lazy loading of the Razorpay SDK to optimize frontend performance.
+
+### Home Page Redesign
+- **Rider-Centric Focus**: Refactored the rider Home page so the hero section exclusively shows their own Home Zone, including a plain-English translation of their DAI trigger line ("Zone DAI 72% — above 55% trigger — all good").
+- **Network Context Strip**: Moved all other city zones into a compact "City Network" strip at the bottom of the page that only shows high-level status dots, minimizing clutter and clearly indicating that coverage applies only to the rider's zone.
+
+## 2026-04-04 — ML Dynamic Pricing Quote & Zone Simulation
+
+### Dynamic Premium Quoting (ML-driven)
+- **Onboarding UX Reform**: Removed static 3-tier plan selection, replacing it with a single, tailored "HustleGuard Protection" plan.
+- **Real-Time ML Calculation**: Implemented `POST /api/v1/policies/quote` endpoint. The frontend passes the rider's chosen home zone, the backend fetches live (simulated) conditions, calculates the ML disruption probability, and applies risk multipliers to compute a bespoke weekly premium.
+- **Transparency**: The onboarding UI now prominently displays the exact zone conditions triggering the price change (e.g., rainfall mm, AQI, DAI) and shows the base plan price crossed out next to the active surge-priced premium.
+
+### Zone Simulation Service & Background Monitoring
+- **`zone_simulation_service.py`**: Built a specialized engine to simulate hyper-realistic Bangalore zone conditions (Koramangala, HSR Layout, etc.). Includes time-of-day multipliers (rush hour vs 2am) and inherent risk factors (low-lying vs elevated terrain).
+- **Background Async Refresh**: Integrated an `asyncio` background task directly into the FastAPI `lifespan` hook. This silently refreshes the zone grid every 5 minutes and recalculates all DAI metrics using the ML model, bypassing the need for Redis/Celery during the demo phase.
+
+### Admin Utilities
+- Added `POST /api/v1/admin/simulate-disruption` allowing admins to surgically force extreme conditions in a single zone during live demonstrations.
+- Added `/api/v1/admin/refresh-zones` for manual cache purging.
+- Upgraded Admin dashboard to reflect real-time pricing and dynamic zone risk bounds directly from the ML engine.
+
 ## 2026-04-04 — Frontend Component Architecture Refactor
 
 ### Major Restructuring

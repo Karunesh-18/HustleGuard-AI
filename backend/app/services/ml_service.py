@@ -12,24 +12,34 @@ logger = logging.getLogger(__name__)
 def predict_disruption(payload: DisruptionPredictionRequest) -> DisruptionPredictionResponse:
     now = datetime.now(tz=timezone.utc)
 
+    hour = payload.hour_of_day if payload.hour_of_day is not None else now.hour
+    dow  = payload.day_of_week if payload.day_of_week is not None else now.weekday()
+
+    # Provide all features that Model 1 and Model 2 may look up.
+    # Optional fields use sensible Bangalore defaults so zone_simulation_service
+    # can call predict_disruption with only the fields it knows (rainfall, AQI,
+    # traffic_speed, current_dai) without triggering a KeyError.
     feature_map = {
-        "rainfall": payload.rainfall,
-        "temperature": payload.temperature,
-        "wind_speed": payload.wind_speed,
-        "aqi": payload.aqi,
-        "average_traffic_speed": payload.traffic_speed,
-        # MODEL_2_FEATURES uses "traffic_speed" — keep both keys so either lookup succeeds
-        "traffic_speed": payload.traffic_speed,
-        "congestion_index": payload.congestion_index,
-        "orders_last_5min": payload.orders_last_5min,
-        "orders_last_15min": payload.orders_last_15min,
-        "active_riders": payload.active_riders,
-        "average_delivery_time": payload.average_delivery_time,
-        "hour_of_day": payload.hour_of_day if payload.hour_of_day is not None else now.hour,
-        "day_of_week": payload.day_of_week if payload.day_of_week is not None else now.weekday(),
-        "current_dai": payload.current_dai,
-        "historical_disruption_frequency": payload.historical_disruption_frequency,
-        "zone_risk_score": payload.zone_risk_score,
+        # ── Model 1 features ────────────────────────────────────────────
+        "rainfall":               payload.rainfall,
+        "temperature":            payload.temperature,          # default 30.0 from schema
+        "wind_speed":             payload.wind_speed,            # default 10.0 from schema
+        "aqi":                    payload.aqi,
+        "average_traffic_speed":  payload.traffic_speed,
+        "congestion_index":       payload.congestion_index,      # default 0.5 from schema
+        "orders_last_5min":       payload.orders_last_5min,      # default 70.0 from schema
+        "orders_last_15min":      payload.orders_last_15min,     # default 190.0 from schema
+        "active_riders":          payload.active_riders,         # default 45.0 from schema
+        "average_delivery_time":  payload.average_delivery_time, # default 24.0 from schema
+        "hour_of_day":            hour,
+        "day_of_week":            dow,
+        # ── Shared / Model 2 extra features ─────────────────────────────
+        # "traffic_speed" is the legacy column name used in MODEL_2_FEATURES;
+        # keep both so either lookup path succeeds.
+        "traffic_speed":                        payload.traffic_speed,
+        "current_dai":                          payload.current_dai,
+        "historical_disruption_frequency":      payload.historical_disruption_frequency,
+        "zone_risk_score":                      payload.zone_risk_score,
     }
 
     try:

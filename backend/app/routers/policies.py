@@ -1,28 +1,169 @@
 """Policies router — manage insurance tier definitions and rider enrollments.
 
 Endpoints:
-  GET  /api/v1/policies                  — list all available tiers
-  GET  /api/v1/policies/{policy_name}    — single tier detail
-  POST /api/v1/policies/subscribe        — subscribe rider to a tier
-  GET  /api/v1/policies/rider/{rider_id} — active policy for a rider
+  GET  /api/v1/policies                        — list all available tiers
+  GET  /api/v1/policies/recommend/{rider_id}   — dynamically recommend one plan
+  GET  /api/v1/policies/{policy_name}          — single tier detail
+  POST /api/v1/policies/subscribe              — subscribe rider to a tier
+  GET  /api/v1/policies/rider/{rider_id}       — active policy for a rider
 """
 
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.claim import Claim
+from app.models.rider import Rider
 from app.schemas import PolicyRead, RiderPolicyCreate, RiderPolicyRead
+from app.schemas.domain import PolicyQuoteRequest, PolicyQuoteResponse, PolicyQuotedPlan
 from app.services.policy_service import (
     get_all_policies,
     get_policy_by_name,
     get_rider_active_policy,
+    quote_policies_for_zone,
     subscribe_rider_to_policy,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/policies", tags=["policies"])
+
+
+# ── Recommendation schema ──────────────────────────────────────────────────────
+
+class PolicyRecommendation(BaseModel):
+    recommended_plan: PolicyQuotedPlan
+    reason: str                       # human-readable why this plan was selected
+    risk_label: str
+    disruption_probability: float
+    claim_count_30d: int
+    reliability_score: int
+    zone_name: str
+    quote: PolicyQuoteResponse        # full quote context for T&C display
+
+
+@router.get("/recommend/{rider_id}", response_model=PolicyRecommendation)
+async def recommend_policy(
+    rider_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> PolicyRecommendation:
+    """Dynamically recommend exactly one insurance plan for a rider.
+
+    Selection algorithm (no manual choice — rider gets one best-fit plan):
+      1. Fetch rider's zone and reliability score from DB
+      2. Run ML quote for that zone → get risk_label + disruption_probability
+      3. Count rider's claims in last 30 days (fraud/frequency signal)
+      4. Apply selection matrix:
+           High risk OR >= 2 recent claims → Premium Armor
+           Moderate risk OR 1 recent claim → Standard Guard
+           Normal risk, 0 claims          → Basic Shield
+           But reliability >= 75 upgrades one tier (rewarding safe riders)
+      5. Return the selected plan with a narrative explanation
+    """
+    if not getattr(request.app.state, "database_ready", False):
+        raise HTTPException(status_code=503, detail="Database is unavailable.")
+
+    # ── 1. Get rider data ─────────────────────────────────────────────────────
+    rider = db.query(Rider).filter(Rider.id == rider_id).first()
+    if rider is None:
+        raise HTTPException(status_code=404, detail=f"Rider {rider_id} not found.")
+
+    zone_name: str = getattr(rider, "home_zone", None) or "Koramangala"
+    reliability: int = int(getattr(rider, "reliability_score", 60) or 60)
+
+    # ── 2. ML quote for zone ──────────────────────────────────────────────────
+    try:
+        quote = quote_policies_for_zone(
+            db,
+            PolicyQuoteRequest(zone_name=zone_name, reliability_score=reliability),
+        )
+    except Exception as exc:
+        logger.warning("Quote failed for rider %s zone %s: %s", rider_id, zone_name, exc)
+        raise HTTPException(status_code=500, detail="Could not generate recommendation.") from exc
+
+    risk_label = quote.risk_label
+    prob = quote.disruption_probability
+
+    # ── 3. Recent claim count (last 30 days) ──────────────────────────────────
+    # Gracefully falls back to 0 if the claims table schema is incomplete (migration pending)
+    from datetime import datetime, timedelta
+    from sqlalchemy import text
+    cutoff = datetime.utcnow() - timedelta(days=30)
+    try:
+        claim_count = (
+            db.query(Claim.id)
+            .filter(Claim.rider_id == rider_id, Claim.created_at >= cutoff)
+            .count()
+        )
+    except Exception as count_exc:
+        logger.warning("Could not count claims for rider %s, defaulting to 0: %s", rider_id, count_exc)
+        db.rollback()
+        claim_count = 0
+
+    # ── 4. Selection matrix ───────────────────────────────────────────────────
+    # Base tier from risk
+    if risk_label == "high" or claim_count >= 2:
+        base_tier = "Premium Armor"
+    elif risk_label == "moderate" or claim_count == 1:
+        base_tier = "Standard Guard"
+    else:
+        base_tier = "Basic Shield"
+
+    # Reliability boost: score >= 75 → upgrade one tier
+    TIER_ORDER = ["Basic Shield", "Standard Guard", "Premium Armor"]
+    tier_idx = TIER_ORDER.index(base_tier)
+    if reliability >= 75 and tier_idx < len(TIER_ORDER) - 1:
+        tier_idx += 1
+        reliability_boost = True
+    else:
+        reliability_boost = False
+
+    selected_name = TIER_ORDER[tier_idx]
+    selected_plan = next(
+        (p for p in quote.plans if p.policy_name == selected_name),
+        quote.plans[min(1, len(quote.plans) - 1)] if quote.plans else None,
+    )
+    if selected_plan is None:
+        raise HTTPException(status_code=500, detail="No policy plans found in database. Seed may be required.")
+
+
+    # ── 5. Build narrative ────────────────────────────────────────────────────
+    risk_phrases = {
+        "high": f"Your zone ({zone_name}) is currently high-risk with a {prob:.0%} disruption probability",
+        "moderate": f"Your zone ({zone_name}) shows moderate disruption risk ({prob:.0%})",
+        "normal": f"Your zone ({zone_name}) is currently low-risk ({prob:.0%} disruption probability)",
+    }
+    risk_part = risk_phrases.get(risk_label, risk_phrases["normal"])
+    rel_part = (
+        f"Your reliability score of {reliability} qualifies you for an upgraded tier." if reliability_boost
+        else f"Your reliability score is {reliability}."
+    )
+    claim_part = (
+        f" Your recent activity ({claim_count} claim(s) in 30 days) suggests you need broader coverage." if claim_count > 0 else ""
+    )
+    reason = f"{risk_part}.{claim_part} {rel_part} Based on this, we recommend {selected_name} — the best fit for your risk profile."
+
+    logger.info(
+        "Recommendation for rider %s zone=%s risk=%s claims=%d reliability=%d -> %s",
+        rider_id, zone_name, risk_label, claim_count, reliability, selected_name,
+    )
+
+    return PolicyRecommendation(
+        recommended_plan=selected_plan,
+        reason=reason,
+        risk_label=risk_label,
+        disruption_probability=prob,
+        claim_count_30d=claim_count,
+        reliability_score=reliability,
+        zone_name=zone_name,
+        quote=quote,
+    )
+
+
 
 
 @router.get("", response_model=list[PolicyRead])
@@ -91,3 +232,27 @@ async def subscribe_to_policy(
         return subscribe_rider_to_policy(db, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/quote", response_model=PolicyQuoteResponse)
+async def quote_policy(
+    payload: PolicyQuoteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> PolicyQuoteResponse:
+    """Return ML risk-adjusted premium quotes for a rider's home zone.
+
+    Fetches current zone conditions (simulated if no live data yet), runs the
+    disruption ML model, converts the risk_label to a price multiplier, and
+    returns all three plan tiers with both base and quoted premiums.
+
+    The quoted_premium_inr on each plan is what the rider will be charged —
+    it reflects real-time disruption risk in their zone, not a flat catalogue price.
+    """
+    if not getattr(request.app.state, "database_ready", False):
+        raise HTTPException(status_code=503, detail="Database is unavailable.")
+    try:
+        return quote_policies_for_zone(db, payload)
+    except Exception as exc:
+        logger.error(f"Premium quote failed for zone={payload.zone_name!r}: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Could not generate quote: {exc}") from exc

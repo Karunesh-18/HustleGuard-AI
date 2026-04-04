@@ -14,12 +14,12 @@ export function useRider() {
   const [error, setError] = useState<string | null>(null);
   const initialisedRef = useRef(false);
 
-  // Restore from sessionStorage on mount
+  // Restore from localStorage on mount
   useEffect(() => {
     if (initialisedRef.current) return;
     initialisedRef.current = true;
     try {
-      const raw = sessionStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as RiderOnboardRead;
         setRider(parsed);
@@ -43,7 +43,7 @@ export function useRider() {
       try {
         const result = await onboardRider({ ...data, reliability_score: 60 });
         setRider(result);
-        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(result));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
         return result;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Onboarding failed";
@@ -79,7 +79,7 @@ export function useRider() {
   const reset = useCallback(() => {
     setRider(null);
     setPolicy(null);
-    sessionStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_KEY);
   }, []);
 
   return { rider, policy, loading, error, onboard, subscribe, reset };

@@ -1,5 +1,17 @@
 from app.schemas import FraudEvaluationRequest, FraudEvaluationResponse, FraudSignalBreakdown
 
+# Fraud signal weights — empirical starting points pending real fraud pattern analysis.
+# Adjust these once production data reveals which signals are most predictive.
+# Weights must sum to 1.0.
+FRAUD_SIGNAL_WEIGHTS: dict[str, float] = {
+    "environmental": 0.25,   # Does weather/AQI/traffic match the claimed disruption?
+    "dai_zone": 0.25,        # Does zone DAI confirm the disruption?
+    "behavioral": 0.15,      # Historical zone visits, claim frequency
+    "motion": 0.15,          # GPS movement velocity (teleportation/mock detection)
+    "ip_network": 0.10,      # GPS vs IP city mismatch, subnet clustering
+    "peer_safety": 0.10,     # Synchronized claim burst detection
+}
+
 
 def _clamp_score(score: float) -> float:
     return max(0.0, min(100.0, score))
@@ -80,12 +92,12 @@ def evaluate_fraud_risk(payload: FraudEvaluationRequest) -> FraudEvaluationRespo
     peer_safety = _clamp_score(peer_safety)
 
     trust_score = (
-        0.25 * environmental
-        + 0.25 * dai_zone
-        + 0.15 * behavioral
-        + 0.15 * motion
-        + 0.10 * ip_network
-        + 0.10 * peer_safety
+        FRAUD_SIGNAL_WEIGHTS["environmental"] * environmental
+        + FRAUD_SIGNAL_WEIGHTS["dai_zone"] * dai_zone
+        + FRAUD_SIGNAL_WEIGHTS["behavioral"] * behavioral
+        + FRAUD_SIGNAL_WEIGHTS["motion"] * motion
+        + FRAUD_SIGNAL_WEIGHTS["ip_network"] * ip_network
+        + FRAUD_SIGNAL_WEIGHTS["peer_safety"] * peer_safety
     )
     trust_score = _clamp_score(trust_score)
 
