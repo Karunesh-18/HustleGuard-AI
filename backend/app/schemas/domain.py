@@ -381,6 +381,50 @@ class ZoneRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# ─── ML-Driven Premium Quoting ────────────────────────────────────────────────
+
+class PolicyQuoteRequest(BaseModel):
+    """Request to get ML-adjusted premium quotes for a rider's home zone."""
+    zone_name: str = Field(description="Rider's selected home zone")
+    reliability_score: float = Field(default=60.0, ge=0, le=100, description="Rider reliability (0–100)")
+
+
+class ZoneConditionsSnapshot(BaseModel):
+    """Current zone conditions used to drive the ML premium calculation."""
+    rainfall_mm: float
+    aqi: int
+    traffic_index: int
+    dai: float
+
+
+class PolicyQuotedPlan(BaseModel):
+    """A single plan with both its base and ML risk-adjusted premium."""
+    policy_id: int
+    policy_name: str
+    base_premium_inr: float          # flat seeded price from DB
+    quoted_premium_inr: float        # ML-adjusted price for this zone right now
+    risk_multiplier: float           # e.g. 1.45 for high-risk zone
+    payout_per_disruption_inr: float
+    dai_trigger_threshold: float
+    max_claims_per_week: int
+    supports_partial_disruption: bool
+    supports_community_claims: bool
+    waiting_period_days: int
+
+
+class PolicyQuoteResponse(BaseModel):
+    """Full quote response: ML context + one quoted plan per tier."""
+    zone_name: str
+    risk_label: str                  # "normal" | "moderate" | "high"
+    disruption_probability: float    # 0.0–1.0 from ML classifier
+    predicted_dai: float             # ML-predicted zone DAI
+    risk_multiplier: float           # multiplier applied to all plan premiums
+    zone_conditions: ZoneConditionsSnapshot
+    plans: list[PolicyQuotedPlan]
+
+
+
+
 class RiderCreate(BaseModel):
     external_worker_id: str
     display_name: str

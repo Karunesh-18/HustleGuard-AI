@@ -122,13 +122,22 @@ def generate_synthetic_dataset(size: int = 30000, random_seed: int = RANDOM_SEED
 def train_pipeline_models(size: int = 30000, random_seed: int = RANDOM_SEED) -> TrainedModels:
     features, y_future_dai, y_disruption = generate_synthetic_dataset(size=size, random_seed=random_seed)
 
+    # ── Model 1: DAI regression ──────────────────────────────────────────────────
     dai_model = RandomForestRegressor(n_estimators=250, random_state=random_seed)
     dai_model.fit(features[MODEL_1_FEATURES], y_future_dai)
 
-    model_2_features = features[MODEL_2_FEATURES].copy()
+    # ── Model 2: disruption classification ──────────────────────────────────────
+    # Build training features for Model 2 from raw columns (excluding predicted_dai
+    # which doesn't exist in the raw dataset), then add it from Model 1's outputs.
+    model_2_base_cols = [c for c in MODEL_2_FEATURES if c != "predicted_dai"]
+    model_2_features = features[model_2_base_cols].copy()
     model_2_features["predicted_dai"] = dai_model.predict(features[MODEL_1_FEATURES])
+    # Reindex to exact MODEL_2_FEATURES column order so the saved model's
+    # feature_names_in_ matches what predict.py will pass at inference time.
+    model_2_features = model_2_features.reindex(columns=MODEL_2_FEATURES)
 
     disruption_model = RandomForestClassifier(n_estimators=250, random_state=random_seed)
     disruption_model.fit(model_2_features, y_disruption)
 
     return TrainedModels(dai_model=dai_model, disruption_model=disruption_model)
+

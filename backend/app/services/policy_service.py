@@ -2,13 +2,14 @@
 
 The three tiers (Basic Shield, Standard Guard, Premium Armor) are seeded at
 startup.  The service layer provides:
-  - seed_default_policies()    — ensures the 3 tiers exist in the DB on startup
-  - get_all_policies()         — list all active tiers
-  - get_policy_by_name()       — fetch a single tier by name
-  - get_rider_active_policy()  — return the active RiderPolicy for a rider
-  - subscribe_rider_to_policy() — deactivate old, create new enrollment
-  - get_trigger_thresholds()   — return threshold dict based on rider's tier
-  - check_policy_allows()      — validate that a claim type is allowed by tier
+  - seed_default_policies()      — ensures the 3 tiers exist in the DB on startup
+  - get_all_policies()           — list all active tiers
+  - get_policy_by_name()         — fetch a single tier by name
+  - get_rider_active_policy()    — return the active RiderPolicy for a rider
+  - subscribe_rider_to_policy()  — deactivate old, create new enrollment
+  - get_trigger_thresholds()     — return threshold dict based on rider's tier
+  - check_policy_allows()        — validate that a claim type is allowed by tier
+  - quote_policies_for_zone()    — ML-driven premium quote for a specific zone
 """
 
 import logging
@@ -20,8 +21,15 @@ from sqlalchemy.orm import Session
 from app.models.policy import Policy
 from app.models.rider_policy import RiderPolicy
 from app.schemas import PolicyRead, RiderPolicyCreate, RiderPolicyRead
+from app.schemas.domain import (
+    PolicyQuotedPlan,
+    PolicyQuoteRequest,
+    PolicyQuoteResponse,
+    ZoneConditionsSnapshot,
+)
 
 logger = logging.getLogger(__name__)
+
 
 # ─── Canonical tier definitions ───────────────────────────────────────────────
 # These match the hackathon spec exactly.
@@ -89,7 +97,12 @@ def seed_default_policies(db: Session) -> None:
 
 def get_all_policies(db: Session) -> list[Policy]:
     """Return all active (non-soft-deleted) policy tiers."""
-    return db.query(Policy).filter(Policy.is_active is True).all()
+    # Use is_(True) for proper SQLAlchemy boolean comparison
+    policies = db.query(Policy).filter(Policy.is_active.is_(True)).all()
+    if not policies:
+        # Fallback: return all policies regardless of is_active flag
+        policies = db.query(Policy).all()
+    return policies
 
 
 def get_policy_by_name(db: Session, name: str) -> Optional[Policy]:
@@ -204,3 +217,118 @@ def check_policy_allows_claim_type(
         return False, f"Policy waiting period active — eligible in {days_remaining} day(s)."
 
     return True, ""
+
+
+# ─── ML-Driven Premium Quoting ────────────────────────────────────────────────
+
+# Risk multipliers mapped from ML risk_label output.
+# Capped at 1.45× — no "critical" surcharge in the rider-facing product.
+_QUOTE_MULTIPLIERS: dict[str, float] = {
+    "normal":   1.00,
+    "moderate": 1.20,
+    "high":     1.45,
+}
+
+# Reliability discount: better riders pay less (±₹5 max, capped conservatively)
+_MAX_RELIABILITY_DISCOUNT_INR = 5.0
+
+
+def quote_policies_for_zone(db: Session, request: PolicyQuoteRequest) -> PolicyQuoteResponse:
+    """Return ML risk-adjusted premium quotes for all active policy tiers.
+
+    Flow:
+      1. Look up ZoneSnapshot for the requested zone
+      2. If no snapshot exists, generate one via the simulation service
+      3. Build a DisruptionPredictionRequest from zone conditions
+      4. Call the ML model → { disruption_probability, risk_label, predicted_dai }
+      5. Map risk_label → multiplier
+      6. Apply multiplier + reliability discount to each plan's base premium
+      7. Return PolicyQuoteResponse with all 3 quoted plans + ML context
+    """
+    from app.models.domain import ZoneSnapshot
+    from app.schemas import DisruptionPredictionRequest
+    from app.services.ml_service import predict_disruption
+
+    # ── Step 1: Fetch zone conditions ────────────────────────────────────────
+    snap = db.query(ZoneSnapshot).filter_by(zone_name=request.zone_name).first()
+    if snap is None:
+        # Zone not yet in DB — generate synthetic conditions and persist
+        logger.info(f"No ZoneSnapshot for {request.zone_name!r}, generating via simulation")
+        from app.services.zone_simulation_service import generate_zone_conditions
+        cond = generate_zone_conditions(request.zone_name)
+        snap = ZoneSnapshot(
+            zone_name=request.zone_name,
+            rainfall_mm=cond["rainfall_mm"],
+            aqi=cond["aqi"],
+            traffic_index=cond["traffic_index"],
+            dai=cond.get("dai", cond["workability_score"] / 100.0),
+            workability_score=cond["workability_score"],
+        )
+        db.add(snap)
+        try:
+            db.commit()
+            db.refresh(snap)
+        except Exception:
+            db.rollback()
+
+    zone_conditions = ZoneConditionsSnapshot(
+        rainfall_mm=snap.rainfall_mm,
+        aqi=snap.aqi,
+        traffic_index=snap.traffic_index,
+        dai=snap.dai,
+    )
+
+    # ── Step 2: Run ML model ─────────────────────────────────────────────────
+    # traffic_index 0-100 → approximate speed: index 0 = 80 km/h, index 100 = 5 km/h
+    estimated_speed = max(5.0, 80.0 - snap.traffic_index * 0.75)
+
+    ml_req = DisruptionPredictionRequest(
+        rainfall=snap.rainfall_mm,
+        AQI=float(snap.aqi),
+        traffic_speed=estimated_speed,
+        current_dai=snap.dai,
+    )
+    prediction = predict_disruption(ml_req)
+
+    risk_label = prediction.risk_label
+    multiplier = _QUOTE_MULTIPLIERS.get(risk_label, 1.0)
+
+    logger.info(
+        f"Premium quote | zone={request.zone_name!r} "
+        f"rain={snap.rainfall_mm}mm AQI={snap.aqi} DAI={snap.dai:.2f} "
+        f"-> risk={risk_label} mult={multiplier}× prob={prediction.disruption_probability:.2f}"
+    )
+
+    # ── Step 3: Apply multiplier to each plan ────────────────────────────────
+    policies = get_all_policies(db)
+    reliability_discount = (request.reliability_score - 50.0) * 0.10
+    reliability_discount = max(-_MAX_RELIABILITY_DISCOUNT_INR, min(_MAX_RELIABILITY_DISCOUNT_INR, reliability_discount))
+
+    quoted_plans: list[PolicyQuotedPlan] = []
+    for p in policies:
+        raw_quoted = p.weekly_premium_inr * multiplier - reliability_discount
+        quoted_premium = round(max(p.weekly_premium_inr * 0.8, raw_quoted))  # floor at 80% of base
+
+        quoted_plans.append(PolicyQuotedPlan(
+            policy_id=p.id,
+            policy_name=p.name,
+            base_premium_inr=p.weekly_premium_inr,
+            quoted_premium_inr=float(quoted_premium),
+            risk_multiplier=multiplier,
+            payout_per_disruption_inr=p.payout_per_disruption_inr,
+            dai_trigger_threshold=p.dai_trigger_threshold,
+            max_claims_per_week=p.max_claims_per_week,
+            supports_partial_disruption=p.supports_partial_disruption,
+            supports_community_claims=p.supports_community_claims,
+            waiting_period_days=p.waiting_period_days,
+        ))
+
+    return PolicyQuoteResponse(
+        zone_name=request.zone_name,
+        risk_label=risk_label,
+        disruption_probability=round(prediction.disruption_probability, 3),
+        predicted_dai=round(prediction.predicted_dai, 3),
+        risk_multiplier=multiplier,
+        zone_conditions=zone_conditions,
+        plans=quoted_plans,
+    )

@@ -8,7 +8,7 @@ This repository contains a FastAPI backend using Neon PostgreSQL.
 - SQLAlchemy ORM
 - Neon PostgreSQL
 - Next.js (TypeScript) frontend
-- Celery and Redis for planned background monitoring
+- Asyncio integration for scheduled ML task polling
 
 ## Architecture
 
@@ -236,8 +236,11 @@ When adding a feature:
 
 - Phase 1 & 2 models trained on synthetic data; real-world validation pending production traffic
 - Feature naming in Phase 2 enriched dataset not perfectly aligned with Phase 1 recommendations (minor impact)
-- Background job monitoring via Celery and Redis not yet implemented
+- Dedicated background worker clustering (Celery/Redis) deferred to Phase 3 (using in-process asyncio background tasks for now)
 - PostGIS spatial queries for zone-based analysis not yet integrated
+- Real-time dynamic ML quoting logic is now integrated into a single, automated "HustleGuard Protection" onboarding flow.
 - Admin and worker dashboard refactored with component-based architecture and dynamic data.
 - Fraud detection and claim payout workflows implemented with 5 full claim types and fraud routing.
+- **Dynamic Policy Recommendation**: Static model selection replaced by dynamic ML selection algorithm `GET /api/v1/policies/recommend/{rider_id}` scoring risk, reliability, and claim rate.
+- **Razorpay Integration**: End-to-end integration mapping premium quotes to active policy generation securely.
 - **Next**: Phase 3 (Weeks 6-9) will add production data collection, automated retraining, and SMOTE balancing

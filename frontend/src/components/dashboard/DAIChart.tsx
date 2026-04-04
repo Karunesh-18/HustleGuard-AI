@@ -53,7 +53,7 @@ export function DAIChart({ zones }: { zones: ZoneLiveData[] }) {
               x2={PAD.left + chartW}
               y1={y(t)}
               y2={y(t)}
-              stroke="var(--color-border-tertiary)"
+              stroke="var(--border)"
               strokeWidth={0.5}
               strokeDasharray={t === THRESHOLD ? "3 3" : undefined}
             />
@@ -62,7 +62,7 @@ export function DAIChart({ zones }: { zones: ZoneLiveData[] }) {
               y={y(t) + 4}
               fontSize={8}
               textAnchor="end"
-              fill="var(--color-text-tertiary)"
+              fill="var(--text-tertiary)"
             >
               {t.toFixed(2)}
             </text>
@@ -104,7 +104,7 @@ export function DAIChart({ zones }: { zones: ZoneLiveData[] }) {
               cy={y(z.dai)}
               r={3}
               fill={daiColor(z.dai)}
-              stroke="var(--color-background-primary)"
+              stroke="var(--bg-card)"
               strokeWidth={1}
             />
             <text
@@ -112,7 +112,7 @@ export function DAIChart({ zones }: { zones: ZoneLiveData[] }) {
               y={H - 4}
               textAnchor="middle"
               fontSize={8}
-              fill="var(--color-text-tertiary)"
+              fill="var(--text-tertiary)"
             >
               {z.zone_name.split(" ")[0]}
             </text>

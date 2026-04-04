@@ -7,3 +7,4 @@ python-dotenv
 pandas
 scikit-learn
 asyncpg
+razorpay
