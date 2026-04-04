@@ -238,6 +238,6 @@ When adding a feature:
 - Feature naming in Phase 2 enriched dataset not perfectly aligned with Phase 1 recommendations (minor impact)
 - Background job monitoring via Celery and Redis not yet implemented
 - PostGIS spatial queries for zone-based analysis not yet integrated
-- Admin and worker dashboard frontend development in progress
-- Fraud detection and claim payout workflows in design phase
+- Admin and worker dashboard refactored with component-based architecture and dynamic data.
+- Fraud detection and claim payout workflows implemented with 5 full claim types and fraud routing.
 - **Next**: Phase 3 (Weeks 6-9) will add production data collection, automated retraining, and SMOTE balancing

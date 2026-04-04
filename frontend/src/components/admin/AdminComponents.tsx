@@ -15,9 +15,7 @@ export function MLForecastBars({
   forecasts: TriggerResponse[];
   loading: boolean;
 }) {
-  const items = forecasts.length > 0
-    ? forecasts.map((f, i) => ({ zone: zones[i]?.zone_name ?? `Zone ${i + 1}`, prob: f.disruption_probability, label: f.risk_label }))
-    : FALLBACK_FORECASTS;
+  const items = forecasts.map((f, i) => ({ zone: zones[i]?.zone_name ?? `Zone ${i + 1}`, prob: f.disruption_probability, label: f.risk_label }));
 
   return (
     <div className="ml-forecast">
@@ -48,13 +46,6 @@ export function MLForecastBars({
   );
 }
 
-const FALLBACK_FORECASTS = [
-  { zone: "Koramangala", prob: 0.89, label: "high" },
-  { zone: "HSR Layout", prob: 0.61, label: "high" },
-  { zone: "Electronic City", prob: 0.48, label: "moderate" },
-  { zone: "Indiranagar", prob: 0.12, label: "normal" },
-  { zone: "Whitefield", prob: 0.08, label: "normal" },
-];
 
 // ── Admin-facing tables ───────────────────────────────────────────────────────
 
@@ -96,15 +87,7 @@ type FraudCase = {
   decision: string;
 };
 
-const FRAUD_CASES: FraudCase[] = [
-  { id: "R-48291", score: 22, flag: "GPS spoof", signal: "VPN · 500m/min", decision: "Reject" },
-  { id: "R-39104", score: 38, flag: "High freq", signal: "9 claims/30d", decision: "Review" },
-  { id: "R-72018", score: 85, flag: "Clear", signal: "All signals ok", decision: "Pay now" },
-  { id: "R-55344", score: 18, flag: "Ring fraud", signal: "Subnet cluster · 50+", decision: "Hold" },
-  { id: "R-10029", score: 61, flag: "Mild risk", signal: "3 claims / 14d", decision: "Provisional" },
-];
-
-export function FraudQueue({ cases = FRAUD_CASES }: { cases?: FraudCase[] }) {
+export function FraudQueue({ cases = [] }: { cases?: FraudCase[] }) {
   return (
     <table className="data-table">
       <thead>
@@ -143,7 +126,7 @@ export function FraudQueue({ cases = FRAUD_CASES }: { cases?: FraudCase[] }) {
 }
 
 export function ZoneAdminTable({ zones }: { zones: ZoneLiveData[] }) {
-  const displayZones = zones.length > 0 ? zones : FALLBACK_ADMIN_ZONES;
+  const displayZones = zones;
   return (
     <table className="data-table">
       <thead>
@@ -178,8 +161,3 @@ export function ZoneAdminTable({ zones }: { zones: ZoneLiveData[] }) {
   );
 }
 
-const FALLBACK_ADMIN_ZONES: ZoneLiveData[] = [
-  { zone_name: "Koramangala", dai: 0.28, workability_score: 31, rainfall_mm: 92, aqi: 143, traffic_index: 38, updated_at: new Date().toISOString() },
-  { zone_name: "HSR Layout", dai: 0.51, workability_score: 57, rainfall_mm: 45, aqi: 118, traffic_index: 54, updated_at: new Date().toISOString() },
-  { zone_name: "Indiranagar", dai: 0.83, workability_score: 82, rainfall_mm: 12, aqi: 86, traffic_index: 72, updated_at: new Date().toISOString() },
-];

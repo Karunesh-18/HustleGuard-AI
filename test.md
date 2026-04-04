@@ -12,8 +12,8 @@ Key capabilities:
 - **Delivery Activity Index (DAI)** — a real-time score (0–1) measuring ecosystem health per zone. DAI below 0.40 combined with an environmental signal triggers a payout.
 - **Two-stage ML pipeline** — Model 1 predicts future DAI (R² = 0.9919), Model 2 classifies disruption risk (Accuracy = 99.8%, zero false positives)
 - **6-layer fraud engine** — weighted trust score across environmental consistency, zone DAI, behavioral history, motion realism, IP/network signals, and peer-coordination patterns
-- **Rider dashboard** — live zone heatmaps, parametric trigger status, payout history, and subscription management
-- **Admin panel** — ML disruption forecasts, fraud detection queue, loss ratio analytics, and payout pipeline visibility
+- **Rider dashboard** — fully dynamic, live-hook driven zone heatmaps, parametric trigger status, payout history, and subscription management
+- **Admin panel** — real-time ML disruption forecasts, fraud detection queue, loss ratio analytics, and payout pipeline visibility without static fallbacks
 
 ## How we built it
 

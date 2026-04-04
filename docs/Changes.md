@@ -23,6 +23,10 @@
 - Broken down into `MLForecastBars`, `FraudQueue`, `ClaimsAdminTable`, and `ZoneAdminTable`.
 - Uses identical design tokens allowing a rich dashboard UX combining live ML models and realtime fraud detection results dynamically interacting via API.
 
+### Dynamic Data Integration & Fallback Removal
+- Scoured the entire frontend architecture to strip out all static array defaults including `FALLBACK_ZONES`, `FALLBACK_FORECASTS`, `FALLBACK_POLICIES`, and `FRAUD_CASES`.
+- Replaced heavily hardcoded layout metrics (e.g., rigid pie charts, numeric 68% stats, fake 130000 payout values) on the Admin Dashboard to conditionally render actual data or graceful `0`/empty UI defaults cleanly relying solely on `useLiveData` hooks.
+
 ## 2026-04-04 — Claims & Policies Phase 2
 
 ### Claims — 5 Claim Types Implemented

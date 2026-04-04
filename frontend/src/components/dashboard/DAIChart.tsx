@@ -19,7 +19,7 @@ export function DAIChart({ zones }: { zones: ZoneLiveData[] }) {
   const y = (dai: number) => PAD.top + chartH * (1 - dai);
   const THRESHOLD = 0.4;
 
-  const displayZones = zones.length > 0 ? zones.slice(0, 6) : FALLBACK_ZONES;
+  const displayZones = zones.slice(0, 6);
 
   // Build sparkline points: evenly spread across X
   const xPerZone = chartW / Math.max(displayZones.length - 1, 1);
@@ -123,10 +123,3 @@ export function DAIChart({ zones }: { zones: ZoneLiveData[] }) {
   );
 }
 
-const FALLBACK_ZONES: ZoneLiveData[] = [
-  { zone_name: "Koramangala", dai: 0.28, workability_score: 31, rainfall_mm: 92, aqi: 143, traffic_index: 38, updated_at: "" },
-  { zone_name: "Electronic City", dai: 0.44, workability_score: 52, rainfall_mm: 37, aqi: 109, traffic_index: 48, updated_at: "" },
-  { zone_name: "HSR Layout", dai: 0.51, workability_score: 57, rainfall_mm: 45, aqi: 118, traffic_index: 54, updated_at: "" },
-  { zone_name: "Whitefield", dai: 0.79, workability_score: 79, rainfall_mm: 8, aqi: 79, traffic_index: 68, updated_at: "" },
-  { zone_name: "Indiranagar", dai: 0.83, workability_score: 82, rainfall_mm: 12, aqi: 86, traffic_index: 72, updated_at: "" },
-];
