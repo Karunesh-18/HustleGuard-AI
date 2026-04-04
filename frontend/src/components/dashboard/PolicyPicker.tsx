@@ -32,8 +32,7 @@ export function PolicyPicker({
     }
   };
 
-  const displayPolicies =
-    policies.length > 0 ? policies : FALLBACK_POLICIES;
+  const displayPolicies = policies;
 
   return (
     <div className="policy-grid">
@@ -134,8 +133,3 @@ function FeatureChip({ enabled, label }: { enabled: boolean; label: string }) {
   );
 }
 
-const FALLBACK_POLICIES: PolicyRead[] = [
-  { id: 1, name: "Basic Shield", weekly_premium_inr: 20, payout_per_disruption_inr: 300, dai_trigger_threshold: 0.35, rainfall_trigger_mm: 90, aqi_trigger_threshold: 450, max_claims_per_week: 2, supports_partial_disruption: false, supports_community_claims: false, appeal_window_hours: 0, waiting_period_days: 7, is_active: true },
-  { id: 2, name: "Standard Guard", weekly_premium_inr: 32, payout_per_disruption_inr: 500, dai_trigger_threshold: 0.40, rainfall_trigger_mm: 80, aqi_trigger_threshold: 350, max_claims_per_week: 3, supports_partial_disruption: true, supports_community_claims: true, appeal_window_hours: 24, waiting_period_days: 3, is_active: true },
-  { id: 3, name: "Premium Armor", weekly_premium_inr: 45, payout_per_disruption_inr: 700, dai_trigger_threshold: 0.50, rainfall_trigger_mm: 65, aqi_trigger_threshold: 250, max_claims_per_week: 5, supports_partial_disruption: true, supports_community_claims: true, appeal_window_hours: 72, waiting_period_days: 0, is_active: true },
-];

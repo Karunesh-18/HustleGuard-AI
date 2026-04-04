@@ -89,11 +89,11 @@ export default function AdminPanel() {
             {/* Top metrics */}
             <div className="adm-metric-grid" style={{ marginBottom: 18 }}>
               {[
-                { label: "Active Policies", value: "4,832", delta: "↑ 147 this week", up: true },
-                { label: "Claims Today", value: String(payouts.length || 218), delta: "↑ 83% vs avg", up: false },
-                { label: "Payout Today", value: fmtInr(totalPayout || 130000), delta: "↑ 4.2× surge", up: false },
-                { label: "Loss Ratio", value: "68%", delta: "↓ 4pp vs last week", up: true },
-                { label: "Fraud Blocked", value: "31", delta: "₹18,600 saved", up: true },
+                { label: "Active Policies", value: "0", delta: "—", up: true },
+                { label: "Claims Today", value: String(payouts.length), delta: "—", up: false },
+                { label: "Payout Today", value: fmtInr(totalPayout), delta: "—", up: false },
+                { label: "Loss Ratio", value: "0%", delta: "—", up: true },
+                { label: "Fraud Blocked", value: "0", delta: "—", up: true },
               ].map((m) => (
                 <div key={m.label} className="metric-card">
                   <div className="metric-label">{m.label}</div>
@@ -171,16 +171,16 @@ export default function AdminPanel() {
             {/* Bottom grid */}
             <div className="grid-2-equal">
               <div className="card">
-                <div className="card-title">Fraud Detection Queue <span className="card-tag" style={{ color: "var(--danger)", background: "var(--danger-bg)" }}>31 flagged</span></div>
+                <div className="card-title">Fraud Detection Queue <span className="card-tag" style={{ color: "var(--danger)", background: "var(--danger-bg)" }}>0 flagged</span></div>
                 <FraudQueue />
               </div>
               <div className="card">
                 <div className="card-title">Payout Pipeline · Today</div>
                 <div className="payout-summary">
                   {[
-                    { label: "Instant", amount: fmtInr(totalRiders >= 100 ? totalRiders * 600 : 82400), riders: totalRiders >= 100 ? totalRiders : 137, color: "var(--brand)" },
-                    { label: "Provisional", amount: "₹29,400", riders: 49, color: "var(--warning-dark)" },
-                    { label: "Held", amount: "₹18,600", riders: 31, color: "var(--danger-dark)" },
+                    { label: "Instant", amount: fmtInr(totalRiders * 600), riders: totalRiders, color: "var(--brand)" },
+                    { label: "Provisional", amount: "₹0", riders: 0, color: "var(--warning-dark)" },
+                    { label: "Held", amount: "₹0", riders: 0, color: "var(--danger-dark)" },
                   ].map((p) => (
                     <div key={p.label} className="payout-box">
                       <div className="payout-box-label">{p.label}</div>
@@ -191,11 +191,11 @@ export default function AdminPanel() {
                 </div>
                 <div className="recent-label">Recent events</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {(payouts.length > 0 ? payouts.slice(0, 4) : FALLBACK_PAYOUTS).map((p, i) => (
-                    <div key={p.id ?? i} className="payout-row">
+                  {payouts.slice(0, 4).map((p) => (
+                    <div key={p.id} className="payout-row">
                       <div className="payout-dot" />
-                      <div className="payout-info">{"zone_name" in p ? p.zone_name : (p as {zone:string}).zone}</div>
-                      <div className="payout-amount" style={{ color: "var(--brand)" }}>{"payout_amount_inr" in p ? fmtInr(p.payout_amount_inr) : (p as {amount:string}).amount}</div>
+                      <div className="payout-info">{p.zone_name}</div>
+                      <div className="payout-amount" style={{ color: "var(--brand)" }}>{fmtInr(p.payout_amount_inr)}</div>
                     </div>
                   ))}
                 </div>
@@ -215,11 +215,11 @@ export default function AdminPanel() {
               <div style={{ display: "flex", gap: 10 }}>
                 <div className="metric-card" style={{ padding: "8px 14px" }}>
                   <div className="metric-label">Total Events</div>
-                  <div style={{ fontWeight: 700, fontSize: 18 }}>{payouts.length || 218}</div>
+                  <div style={{ fontWeight: 700, fontSize: 18 }}>{payouts.length}</div>
                 </div>
                 <div className="metric-card" style={{ padding: "8px 14px" }}>
                   <div className="metric-label">Total Paid</div>
-                  <div style={{ fontWeight: 700, fontSize: 18, color: "var(--brand)" }}>{fmtInr(totalPayout || 130000)}</div>
+                  <div style={{ fontWeight: 700, fontSize: 18, color: "var(--brand)" }}>{fmtInr(totalPayout)}</div>
                 </div>
               </div>
             </div>
@@ -351,9 +351,3 @@ export default function AdminPanel() {
   );
 }
 
-// Fallback for when payouts are empty
-const FALLBACK_PAYOUTS = [
-  { id: 1, zone_name: "R-72018 · Koramangala", payout_amount_inr: 600 },
-  { id: 2, zone_name: "R-81003 · Koramangala", payout_amount_inr: 600 },
-  { id: 3, zone_name: "R-39104 · HSR Layout", payout_amount_inr: 400 },
-];
