@@ -17,6 +17,7 @@ from app.models.zone import Zone
 from app.schemas import DisruptionPredictionRequest, TriggerEvaluateRequest, TriggerEvaluateResponse
 from app.services.domain_service import record_payout_event
 from app.services.ml_service import predict_disruption
+from app.services.policy_service import get_trigger_thresholds_for_rider
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,20 @@ async def evaluate_parametric_trigger(
     if not getattr(request.app.state, "database_ready", False):
         raise HTTPException(status_code=503, detail="Database is unavailable.")
 
+    # ── Policy-aware threshold selection ────────────────────────────────────
+    # If rider_id is provided, use their policy tier's thresholds.
+    # Riders on Premium Armor fire earlier (DAI < 0.50), Basic Shield only at DAI < 0.35.
+    policy_thresholds = None
+    policy_name = None
+    if payload.rider_id:
+        policy_thresholds = get_trigger_thresholds_for_rider(db, payload.rider_id)
+        policy_name = policy_thresholds.get("policy_name")
+
+    dai_threshold = policy_thresholds["dai_threshold"] if policy_thresholds else DISRUPTION_THRESHOLD
+    rainfall_threshold = policy_thresholds["rainfall_threshold"] if policy_thresholds else 80.0
+    aqi_threshold = policy_thresholds["aqi_threshold"] if policy_thresholds else 300.0
+    payout_inr = policy_thresholds["payout_inr"] if policy_thresholds else DEFAULT_PAYOUT_INR
+
     # Build ML prediction request from trigger payload
     ml_request = DisruptionPredictionRequest(
         rainfall=payload.rainfall,
@@ -53,21 +68,28 @@ async def evaluate_parametric_trigger(
     )
     prediction = predict_disruption(ml_request)
 
-    triggered = prediction.disruption_probability >= DISRUPTION_THRESHOLD
+    # Trigger fires if ML probability is high OR if any single threshold is breached
+    ml_triggered = prediction.disruption_probability >= dai_threshold
+    threshold_triggered = (
+        payload.current_dai < dai_threshold
+        or payload.rainfall > rainfall_threshold
+        or payload.aqi > aqi_threshold
+    )
+    triggered = ml_triggered or threshold_triggered
     payout_event_id: int | None = None
     trigger_reason: str | None = None
 
     if triggered:
         # Build a human-readable trigger reason
         reasons = []
-        if payload.rainfall > 80:
-            reasons.append(f"Rainfall {payload.rainfall:.0f}mm > 80mm threshold")
-        if payload.aqi > 300:
-            reasons.append(f"AQI {payload.aqi:.0f} > 300 threshold")
+        if payload.rainfall > rainfall_threshold:
+            reasons.append(f"Rainfall {payload.rainfall:.0f}mm > {rainfall_threshold:.0f}mm threshold")
+        if payload.aqi > aqi_threshold:
+            reasons.append(f"AQI {payload.aqi:.0f} > {aqi_threshold:.0f} threshold")
         if payload.traffic_speed < 10:
             reasons.append(f"Traffic speed {payload.traffic_speed:.0f} km/h < 10 km/h threshold")
-        if payload.current_dai < DISRUPTION_THRESHOLD:
-            reasons.append(f"DAI {payload.current_dai:.2f} < {DISRUPTION_THRESHOLD} threshold")
+        if payload.current_dai < dai_threshold:
+            reasons.append(f"DAI {payload.current_dai:.2f} < {dai_threshold:.2f} threshold ({policy_name or 'default'})")
         trigger_reason = " · ".join(reasons) if reasons else f"Disruption probability {prediction.disruption_probability:.0%}"
 
         try:
@@ -105,7 +127,7 @@ async def evaluate_parametric_trigger(
                 db=db,
                 zone_name=zone_name,
                 trigger_reason=trigger_reason,
-                payout_amount_inr=DEFAULT_PAYOUT_INR,
+                payout_amount_inr=payout_inr,
                 eligible_riders=DEFAULT_ELIGIBLE_RIDERS,
             )
             payout_event_id = event.id
@@ -130,4 +152,6 @@ async def evaluate_parametric_trigger(
         risk_label=prediction.risk_label,
         trigger_reason=trigger_reason,
         payout_event_id=payout_event_id,
+        policy_name=policy_name,
+        dai_threshold_used=round(dai_threshold, 2),
     )
