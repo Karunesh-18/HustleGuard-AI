@@ -21,6 +21,20 @@ from .domain import (
     PremiumCalculateResponse,
     TriggerEvaluateRequest,
     TriggerEvaluateResponse,
+    # New policy schemas
+    PolicyRead,
+    RiderPolicyCreate,
+    RiderPolicyRead,
+    # New claim type schemas
+    ManualDistressClaimRequest,
+    ManualDistressClaimResponse,
+    PartialDisruptionClaimRequest,
+    PartialDisruptionClaimResponse,
+    CommunityClaimRequest,
+    CommunityClaimResponse,
+    CommunityClaim,
+    AppealClaimRequest,
+    AppealClaimResponse,
 )
 
 __all__ = [
@@ -50,4 +64,16 @@ __all__ = [
     "PremiumCalculateResponse",
     "TriggerEvaluateRequest",
     "TriggerEvaluateResponse",
+    "PolicyRead",
+    "RiderPolicyCreate",
+    "RiderPolicyRead",
+    "ManualDistressClaimRequest",
+    "ManualDistressClaimResponse",
+    "PartialDisruptionClaimRequest",
+    "PartialDisruptionClaimResponse",
+    "CommunityClaimRequest",
+    "CommunityClaimResponse",
+    "CommunityClaim",
+    "AppealClaimRequest",
+    "AppealClaimResponse",
 ]

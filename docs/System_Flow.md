@@ -87,19 +87,22 @@ If all checks pass:
 
 ## Dashboard Update
 
-Frontend polls backend periodically.
+Frontend polls backend periodically using background hooks (`useLiveData`).
 
 Updates include:
 
-- disruption heatmap
-- risk map
-- rider payouts
-- zone status
+- zone strip and signals
+- DAI threshold chart
+- disruption alerts (toast notifications)
+- ML model disruption forecasts
+- rider payout history
 
-## Manual Claim Flow
+## Manual Claim Flow (Distress Panic Button)
 
-If rider believes payout was missed:
+If rider cannot work due to disruption:
 
-1. submit manual claim
-2. admin review
-3. approve or reject claim
+1. Rider submits a manual distress claim ("I Can't Work") specifying reason.
+2. System evaluates claim against 6-layer Fraud Check (Environmental, DAI, Behavioral, IP, Peer, Motion).
+3. If trust score >= 80: Instant automatic payout.
+4. If trust score between 40-79: Provisional payout or admin review.
+5. If trust score < 40: Rejected/Hold.

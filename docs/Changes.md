@@ -1,6 +1,104 @@
 # Changes
 
+## 2026-04-04 — Frontend Component Architecture Refactor
+
+### Major Restructuring
+- Completely refactored the frontend by decomposing two massive inline-styled files (`page.tsx` and `admin/page.tsx`, ~1700 lines total) into a truly modular architecture.
+- Replaced all inline styles with a comprehensive, centralized design system using vanilla CSS (`globals.css`), eliminating any dependency on TailwindCSS.
+
+### New Architecture
+- **Infrastructure:** Extracted common logic into `src/types/index.ts`, `src/lib/api.ts` (centralized API calls), and `src/lib/formatters.ts`.
+- **Custom Hooks:** Implemented tailored hooks:
+  - `useLiveData.ts`: Polls zones and payloads, features dynamic disruption toast notifications.
+  - `useRider.ts`: Manages rider state with `sessionStorage` persistence, handling active policy subscription and onboarding.
+  - `useHealth.ts`: Polls the API to maintain a 3-state DB/API health indicator.
+
+### Rider App Components
+- **Dashboard Utilities:** Replaced monolithic dashboard code with modular tools like `MetricCards`, `DAIChart` (using clean SVGs), and `TriggerList`.
+- **Zone Selectors:** Built `ZoneStrip` and `ZoneSignals` allowing dynamic interaction and live visibility into DAI, rainfall, AQI, and traffic.
+- **Onboarding & Policies:** Created `OnboardingWizard` (3-step flow) and `PolicyPicker` to handle frontend user signup directly.
+- **Manual Distress (Panic Button):** Embedded `ManualDistressPanel` allowing riders to send a one-tap claim with automatic fraud pipeline routing and an instant UPI-style countdown loop.
+
+### Admin Dashboard Components
+- Broken down into `MLForecastBars`, `FraudQueue`, `ClaimsAdminTable`, and `ZoneAdminTable`.
+- Uses identical design tokens allowing a rich dashboard UX combining live ML models and realtime fraud detection results dynamically interacting via API.
+
+## 2026-04-04 — Claims & Policies Phase 2
+
+### Claims — 5 Claim Types Implemented
+
+HustleGuard AI now supports 5 distinct claim types, each with its own fraud-validated workflow and payout logic.
+
+#### Type 1: Parametric Auto-Claim (enhanced)
+- Existing flow now records `claim_type = "parametric_auto"` in the DB for full audit trail
+- Trigger evaluation (`POST /api/v1/triggers/evaluate`) now accepts optional `rider_id` and uses that rider's policy tier thresholds (DAI, rainfall, AQI) instead of hardcoded defaults
+- Response now returns `policy_name` and `dai_threshold_used` for transparency
+
+#### Type 2: Manual Distress Claim (new — panic button)
+- `POST /api/v1/claims/manual-distress` — rider taps "I Can't Work", picks one reason (Rain / Traffic / Curfew / Other)
+- Full 6-layer fraud engine validation: environmental, DAI-zone, behavioral, motion, IP/network, peer correlation
+- Response includes `estimated_payout_seconds` (47s = instant, 300s = provisional) for UPI-style countdown UX
+
+#### Type 3: Partial Disruption Claim (new — most novel)
+- `POST /api/v1/claims/partial-disruption` — prorated payout for grey-zone DAI (0.40–0.55)
+- Formula: `Payout = Base × (1 − current_DAI / normal_DAI)`
+- Response includes full `calculation` formula string so riders see the math
+- Only available for Standard Guard and Premium Armor policy holders
+
+#### Type 4: Community Claim (new — human sensor layer)
+- `POST /api/v1/claims/community` — accepts batch of 5+ rider signals from same zone
+- Creates individual Claim + Payout records for each eligible rider
+- Acts as ground truth even when weather APIs / AQI sensors are offline or lagging
+- Community claims default to trust score = 75 (provisional payout with review)
+- Only available for Standard Guard and Premium Armor policy holders
+
+#### Type 5: Appeal Claim (new)
+- `POST /api/v1/claims/appeal` — challenge a rejected claim with one clarification text
+- Validates that the rider's policy includes an appeal window (standard: 24h, premium: 72h)
+- Checks claim is within the window (prevents stale appeals)
+- Creates appeal claim with `appeal_status = pending` for admin queue
+
+#### GET rider claims
+- `GET /api/v1/claims/rider/{rider_id}` — paginated list of all claims for a rider, newest first
+
+### Policies — 3 Tiers with Trigger Sensitivity
+
+Full policy tier system implemented with trigger thresholds that vary per tier:
+
+| Tier | Premium | Payout | DAI threshold | Claims/week |
+|---|---|---|---|---|
+| Basic Shield | ₹20/wk | ₹300 | < 0.35 | 2 |
+| Standard Guard | ₹32/wk | ₹500 | < 0.40 | 3 |
+| Premium Armor | ₹45/wk | ₹700 | **< 0.50** | 5 |
+
+New endpoints:
+- `GET /api/v1/policies` — list all active tiers with full spec
+- `GET /api/v1/policies/{name}` — single tier detail
+- `POST /api/v1/policies/subscribe` — subscribe rider to a tier
+- `GET /api/v1/policies/rider/{rider_id}` — active policy for rider
+
+Policies are **seeded at startup** — no manual migration needed.
+
+### New Models
+
+- `app/models/policy.py` — Policy tier model
+- `app/models/rider_policy.py` — RiderPolicy enrollment table
+- `app/models/claim.py` — Extended with 10 new fields (claim_type, distress_reason, partial payout, community_trigger_count, appeal fields)
+
+### New Services
+
+- `app/services/policy_service.py` — Tier management, enrollment, threshold lookup, claim type validation
+- `app/services/claim_service.py` — Rewritten with all 5 claim type handlers
+
+### New Documentation
+
+- `docs/Claims_and_Policies.md` — Full reference for all 5 claim types, 3 tiers, fraud routing, API endpoints
+- `docs/Database_Schema.md` — Updated with new `claims`, `policies`, `rider_policies` table schemas
+
+---
+
 ## 2026-03-20 — Deployment Readiness (Vercel + Render)
+
 
 - Added Render Blueprint config in `render.yaml` for backend deployment:
   - `rootDir: backend`

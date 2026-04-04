@@ -38,9 +38,8 @@ This enables:
 
 ## Frontend
 - Next.js (TypeScript)
-- TailwindCSS
-- Leaflet.js (maps)
-- Recharts (analytics)
+- Vanilla CSS (Custom Design System in `globals.css`)
+- Custom SVG components (Heatmaps and Analytics)
 
 ## Backend
 - FastAPI (Python)
