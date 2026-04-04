@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app import models as _models
 from app import database as app_database
 from app.database import Base
-from app.routers import claims, domain, fraud, health, ml, users, triggers
+from app.routers import claims, domain, fraud, health, ml, policies, users, triggers
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,14 @@ async def lifespan(app: FastAPI):
         app.state.database_ready = True
         app.state.database_error = None
         app.state.database_backend = "primary"
+        # Seed the 3 default policy tiers if not already present
+        from app.database import SessionLocal
+        from app.services.policy_service import seed_default_policies
+        _seed_db = SessionLocal()
+        try:
+            seed_default_policies(_seed_db)
+        finally:
+            _seed_db.close()
     except SQLAlchemyError as exc:
         primary_error = str(exc)
         try:
@@ -94,6 +102,7 @@ app.include_router(fraud.router)
 app.include_router(claims.router)
 app.include_router(domain.router)
 app.include_router(triggers.router)
+app.include_router(policies.router)
 
 
 # ─── Bare /zones/live-data and /payouts/recent aliases ─────────────────────
