@@ -558,27 +558,6 @@ class PremiumCalculateResponse(BaseModel):
     risk_tier: str
 
 
-# ─── Parametric trigger evaluation ───────────────────────────────────────────
-
-class TriggerEvaluateRequest(BaseModel):
-    zone_id: int = Field(gt=0)
-    rainfall: float = Field(ge=0)
-    aqi: float = Field(alias="AQI", ge=0)
-    traffic_speed: float = Field(ge=0)
-    current_dai: float = Field(ge=0, le=1)
-
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class TriggerEvaluateResponse(BaseModel):
-    triggered: bool
-    disruption_probability: float
-    predicted_dai: float
-    risk_label: str
-    trigger_reason: str | None = None
-    payout_event_id: int | None = None
-
-
 from app.schemas.fraud import FraudEvaluationRequest  # noqa: E402
 
 ClaimEvaluationRequest.model_rebuild()

@@ -38,11 +38,18 @@ export default function ClaimsPage() {
     setSubmitting(true);
     setError(null);
     try {
+      // Read rider from localStorage — set during onboarding
       const raw = typeof localStorage !== "undefined" ? localStorage.getItem("hg_rider") : null;
-      const rider = raw ? JSON.parse(raw) : {};
+      const rider = raw ? (JSON.parse(raw) as { id?: number; zone_id?: number }) : {};
+
+      if (!rider.id || typeof rider.id !== "number" || rider.id <= 0) {
+        setError("Please complete onboarding first before submitting a claim.");
+        return;
+      }
+
       const res = await submitManualDistressClaim({
         rider_id: rider.id,
-        zone_id: rider.zone_id ?? 1,
+        zone_id: rider.zone_id && rider.zone_id > 0 ? rider.zone_id : 1,
         reason,
         zone_dai: 0.38,
         rainfall: 85,
@@ -52,7 +59,13 @@ export default function ClaimsPage() {
       setResult(res);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Claim submission failed";
-      setError(msg.includes("400") ? "Claim rejected — you may be within your policy waiting period." : msg);
+      if (msg.includes("400")) {
+        setError("Claim rejected — you may be in a waiting period or have no active policy.");
+      } else if (msg.includes("503")) {
+        setError("Backend is temporarily unavailable. Please try again.");
+      } else {
+        setError(msg);
+      }
     } finally {
       setSubmitting(false);
     }
