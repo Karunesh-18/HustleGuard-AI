@@ -37,10 +37,24 @@ from app.services.claim_service import (
     evaluate_community_claim,
 )
 
+import threading
+import time
+from collections import defaultdict
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/claims", tags=["claims"])
 
 _DB_GUARD = "Database is unavailable."
+
+# ── In-process rate limiter for manual-distress endpoint ─────────────────────
+# Limits each rider_id to DISTRESS_MAX_PER_WINDOW calls in DISTRESS_WINDOW_SECONDS.
+# Uses a sliding window (per-rider timestamp list) protected by a lock.
+# This is suitable for a single-process server; for multi-worker deployments
+# switch to a Redis-backed counter (e.g. slowapi with Redis backend).
+_DISTRESS_WINDOW_SECONDS = 60
+_DISTRESS_MAX_PER_WINDOW = 5
+_distress_calls: dict[int, list[float]] = defaultdict(list)
+_distress_lock = threading.Lock()
 
 
 def _require_db(request: Request) -> None:
@@ -84,6 +98,24 @@ async def manual_distress_claim(
     trust score ≥ 80.
     """
     _require_db(request)
+
+    # Rate limit: max 5 distress submissions per rider per 60 seconds
+    now = time.monotonic()
+    with _distress_lock:
+        timestamps = _distress_calls[payload.rider_id]
+        # Evict calls outside the sliding window
+        timestamps[:] = [t for t in timestamps if now - t < _DISTRESS_WINDOW_SECONDS]
+        if len(timestamps) >= _DISTRESS_MAX_PER_WINDOW:
+            retry_in = int(_DISTRESS_WINDOW_SECONDS - (now - timestamps[0])) + 1
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"Too many distress submissions — please wait {retry_in}s before trying again."
+                ),
+                headers={"Retry-After": str(retry_in)},
+            )
+        timestamps.append(now)
+
     try:
         return create_manual_distress_claim(db, payload)
     except ValueError as exc:

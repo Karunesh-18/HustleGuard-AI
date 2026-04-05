@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { submitManualDistressClaim } from "@/lib/api";
-import { CloudRainIcon, CarIcon, LockIcon, HelpCircleIcon, SosIcon, ZapIcon, ClockIcon, InfoIcon, ActivityIcon } from "@/components/Icon";
+import { useState, useEffect } from "react";
+import { submitManualDistressClaim, getZoneLiveData } from "@/lib/api";
+import type { ZoneLiveData } from "@/types";
+import { CloudRainIcon, CarIcon, LockIcon, HelpCircleIcon, SosIcon, ZapIcon, ClockIcon, ActivityIcon } from "@/components/Icon";
 
 const REASONS = [
   { value: "Rain",    Icon: CloudRainIcon, label: "Heavy Rain" },
@@ -27,32 +28,70 @@ function CountdownBar({ seconds }: { seconds: number }) {
   );
 }
 
+type Rider = { id?: number; name?: string; home_zone?: string };
+
 export default function ClaimsPage() {
   const [reason, setReason] = useState<Reason | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ decision: string; estimated_payout_seconds: number; trust_score: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rider, setRider] = useState<Rider | null>(null);
+  const [zones, setZones] = useState<ZoneLiveData[]>([]);
+
+  // Load rider from localStorage and fetch live zone data for real conditions
+  useEffect(() => {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem("hg_rider") : null;
+    if (raw) {
+      try { setRider(JSON.parse(raw) as Rider); } catch { /* ignore */ }
+    }
+    getZoneLiveData().then(setZones).catch(() => {});
+  }, []);
+
+  // Pick the zone matching the rider's home_zone, fall back to the worst zone
+  const homeZoneData = zones.find((z) => z.zone_name === rider?.home_zone)
+    ?? zones.sort((a, b) => a.dai - b.dai)[0]
+    ?? null;
 
   const handleSubmit = async () => {
     if (!reason) return;
     setSubmitting(true);
     setError(null);
     try {
-      const raw = typeof localStorage !== "undefined" ? localStorage.getItem("hg_rider") : null;
-      const rider = raw ? JSON.parse(raw) : {};
+      if (!rider?.id) {
+        setError("Please complete onboarding first before submitting a claim.");
+        return;
+      }
+
+      // Use live zone conditions — accurate fraud evaluation
+      const zoneData = homeZoneData;
+      const trafficSpeed = zoneData ? Math.max(5, 80 - zoneData.traffic_index) : 20;
+      const zoneId = zoneData
+        ? zones.indexOf(zoneData) + 1   // zone_id is 1-indexed in the DB order
+        : 1;
+
       const res = await submitManualDistressClaim({
         rider_id: rider.id,
-        zone_id: rider.zone_id ?? 1,
+        zone_id: zoneId,
         reason,
-        zone_dai: 0.38,
-        rainfall: 85,
-        AQI: 220,
-        traffic_speed: 12,
+        zone_dai: zoneData?.dai ?? 0.38,
+        rainfall: zoneData?.rainfall_mm ?? 85,
+        AQI: zoneData?.aqi ?? 220,
+        traffic_speed: trafficSpeed,
       });
       setResult(res);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Claim submission failed";
-      setError(msg.includes("400") ? "Claim rejected — you may be within your policy waiting period." : msg);
+      if (msg.includes("400")) {
+        setError(
+          "Claim rejected — no active policy found. Open your Profile → Coverage to get protected first."
+        );
+      } else if (msg.includes("429")) {
+        setError("Too many submissions — please wait a minute before trying again.");
+      } else if (msg.includes("503")) {
+        setError("Service temporarily unavailable. Please try again in a moment.");
+      } else {
+        setError(msg);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -106,6 +145,24 @@ export default function ClaimsPage() {
           Can&apos;t work due to a disruption? We&apos;ll verify and pay instantly.
         </div>
       </div>
+
+      {/* Live zone conditions badge */}
+      {homeZoneData && (
+        <div style={{
+          padding: "8px 12px", borderRadius: "var(--radius-md)",
+          background: homeZoneData.dai < 0.45 ? "rgba(239,68,68,0.08)" : "var(--bg-raised)",
+          border: `1px solid ${homeZoneData.dai < 0.45 ? "rgba(239,68,68,0.3)" : "var(--border)"}`,
+          display: "flex", alignItems: "center", gap: 10,
+        }}>
+          <ActivityIcon size={14} color={homeZoneData.dai < 0.45 ? "var(--danger)" : "var(--text-secondary)"} />
+          <span style={{ fontSize: "0.8125rem", color: homeZoneData.dai < 0.45 ? "var(--danger)" : "var(--text-secondary)", fontWeight: 600 }}>
+            {homeZoneData.zone_name} — {homeZoneData.dai < 0.45 ? "Active disruption" : "Conditions normal"}
+          </span>
+          <span className="body-sm" style={{ color: "var(--text-tertiary)", marginLeft: "auto" }}>
+            DAI {Math.round(homeZoneData.dai * 100)}% · Rain {homeZoneData.rainfall_mm}mm
+          </span>
+        </div>
+      )}
 
       {/* Panic button */}
       <button

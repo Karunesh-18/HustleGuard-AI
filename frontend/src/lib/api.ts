@@ -12,6 +12,7 @@ import type {
   RiderPolicyRead,
   TriggerResponse,
   ZoneLiveData,
+  ZoneRead,
 } from "@/types";
 
 export const API_BASE = (
@@ -40,7 +41,15 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     clearTimeout(timeout);
   }
 
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${path}`);
+  if (!res.ok) {
+    // Try to parse the backend's JSON error detail for better error messages
+    let detail: string = res.statusText;
+    try {
+      const body = await res.json() as { detail?: string };
+      if (body?.detail) detail = body.detail;
+    } catch { /* ignore parse errors */ }
+    throw new Error(`${res.status}: ${detail}`);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -56,6 +65,10 @@ export async function getZoneLiveData(): Promise<ZoneLiveData[]> {
   return apiFetch<ZoneLiveData[]>("/zones/live-data");
 }
 
+export async function getZones(): Promise<ZoneRead[]> {
+  return apiFetch<ZoneRead[]>("/api/v1/zones");
+}
+
 export async function getRecentPayouts(): Promise<PayoutEventRead[]> {
   return apiFetch<PayoutEventRead[]>("/payouts/recent");
 }
@@ -67,6 +80,9 @@ export async function evaluateTrigger(
   zone: ZoneLiveData,
   riderId?: number
 ): Promise<TriggerResponse> {
+  // traffic_index is 0–100 (congestion level); backend expects km/h speed.
+  // Inversion: index 0 = free flow (~80 km/h), index 100 = gridlock (~5 km/h).
+  const trafficSpeedKmh = Math.max(5, 80 - zone.traffic_index);
   return apiFetch<TriggerResponse>("/api/v1/triggers/evaluate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -74,7 +90,7 @@ export async function evaluateTrigger(
       zone_id: zoneId,
       rainfall: zone.rainfall_mm,
       AQI: zone.aqi,
-      traffic_speed: zone.traffic_index,
+      traffic_speed: trafficSpeedKmh,
       current_dai: zone.dai,
       ...(riderId ? { rider_id: riderId } : {}),
     }),
@@ -89,12 +105,17 @@ export async function getPolicies(): Promise<PolicyRead[]> {
 
 export async function subscribeRiderToPolicy(
   riderId: number,
-  policyName: string
+  policyName: string,
+  waiveWaitingPeriod = false,
 ): Promise<RiderPolicyRead> {
   return apiFetch<RiderPolicyRead>("/api/v1/policies/subscribe", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ rider_id: riderId, policy_name: policyName }),
+    body: JSON.stringify({
+      rider_id: riderId,
+      policy_name: policyName,
+      waive_waiting_period: waiveWaitingPeriod,
+    }),
   });
 }
 
@@ -131,6 +152,14 @@ export async function onboardRider(data: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
+  });
+}
+
+export async function signinRider(phone: string): Promise<RiderOnboardRead> {
+  return apiFetch<RiderOnboardRead>("/api/v1/riders/signin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone }),
   });
 }
 
@@ -205,5 +234,13 @@ export async function predictDisruption(data: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
+  });
+}
+
+export async function simulateDisruption(zoneName: string): Promise<void> {
+  return apiFetch(`/api/v1/admin/simulate-disruption`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ zone_name: zoneName })
   });
 }

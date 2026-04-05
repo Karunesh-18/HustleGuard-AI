@@ -25,6 +25,7 @@ from app.services.domain_service import (
     list_riders,
     list_zones,
     onboard_rider,
+    signin_rider,
     create_subscription,
 )
 from app.services.premium_service import calculate_weekly_premium
@@ -108,6 +109,33 @@ async def onboard_rider_endpoint(
         return onboard_rider(db, payload)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# ─── Rider sign-in (session restore) ─────────────────────────────────────────────
+
+from pydantic import BaseModel as _BaseModel, Field as _Field
+
+class _SignInRequest(_BaseModel):
+    phone: str = _Field(min_length=6, description="Rider's registered phone number")
+
+
+@router.post("/riders/signin", response_model=RiderOnboardRead)
+async def signin_rider_endpoint(
+    payload: _SignInRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> RiderOnboardRead:
+    """Sign in an existing rider by phone number — restores their session without re-registration.
+
+    Returns the same schema as /riders/onboard so the frontend can write directly
+    to localStorage without any schema conversion.
+    """
+    if not getattr(request.app.state, "database_ready", False):
+        raise HTTPException(status_code=503, detail="Database is unavailable.")
+    try:
+        return signin_rider(db, payload.phone)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 # ─── Subscription endpoint ────────────────────────────────────────────────────

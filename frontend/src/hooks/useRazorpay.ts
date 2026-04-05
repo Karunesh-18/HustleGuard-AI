@@ -9,6 +9,11 @@
  *   3. Razorpay modal opens with that order_id
  *   4. On payment success → POSTs to /api/v1/payments/verify
  *   5. Returns { success, payment_id, message }
+ *
+ * CDN error handling:
+ *   If the Razorpay script is blocked (ad-blocker, network, India-specific CDN
+ *   issues), sdkBlocked is set to true and openCheckout returns a descriptive
+ *   error instead of silently hanging.
  */
 "use client";
 
@@ -40,29 +45,64 @@ export type CheckoutResult =
 
 export function useRazorpay() {
   const [scriptReady, setScriptReady] = useState(false);
+  const [sdkBlocked, setSdkBlocked] = useState(false);
   const [loading, setLoading] = useState(false);
   const scriptRef = useRef<HTMLScriptElement | null>(null);
 
   // Load the Razorpay script once on mount
   useEffect(() => {
+    // Already injected by a previous render
     if (document.querySelector(`script[src="${SCRIPT_SRC}"]`)) {
-      setScriptReady(true);
+      if (window.Razorpay) setScriptReady(true);
+      // Script tag present but window.Razorpay not yet defined — wait for onload
       return;
     }
+
     const script = document.createElement("script");
     script.src = SCRIPT_SRC;
     script.async = true;
-    script.onload = () => setScriptReady(true);
-    script.onerror = () => console.error("[useRazorpay] Failed to load Razorpay script");
+
+    script.onload = () => {
+      if (window.Razorpay) {
+        setScriptReady(true);
+      } else {
+        // Script loaded but Razorpay not defined — CDN served empty/blocked response
+        setSdkBlocked(true);
+        console.error("[useRazorpay] Script loaded but window.Razorpay is undefined");
+      }
+    };
+
+    script.onerror = () => {
+      // Network error or ad-blocker blocked the CDN request
+      setSdkBlocked(true);
+      console.error(
+        "[useRazorpay] Failed to load Razorpay script — likely blocked by an ad-blocker or network issue. " +
+        "Disable the blocker for this site and refresh."
+      );
+    };
+
     document.body.appendChild(script);
     scriptRef.current = script;
   }, []);
 
   const openCheckout = useCallback(
     async (opts: CheckoutOptions): Promise<CheckoutResult> => {
-      if (!scriptReady || !window.Razorpay) {
-        return { success: false, error: "Razorpay script not loaded. Check your internet connection." };
+      // SDK blocked by ad-blocker or network — give user a clear error
+      if (sdkBlocked) {
+        return {
+          success: false,
+          error:
+            "Payment SDK blocked — disable your ad-blocker for this site and refresh the page.",
+        };
       }
+
+      if (!scriptReady || !window.Razorpay) {
+        return {
+          success: false,
+          error: "Razorpay is loading — please wait a moment and try again.",
+        };
+      }
+
       setLoading(true);
 
       try {
@@ -101,7 +141,7 @@ export function useRazorpay() {
               name: opts.name ?? "",
               email: opts.email ?? "",
             },
-            theme: { color: "#5B21B6" },   // matches Arctis brand colour
+            theme: { color: "#5B21B6" },
             modal: {
               ondismiss: () => resolve({ success: false, error: "Payment cancelled by user." }),
             },
@@ -143,8 +183,8 @@ export function useRazorpay() {
         setLoading(false);
       }
     },
-    [scriptReady],
+    [scriptReady, sdkBlocked],
   );
 
-  return { scriptReady, loading, openCheckout };
+  return { scriptReady, sdkBlocked, loading, openCheckout };
 }

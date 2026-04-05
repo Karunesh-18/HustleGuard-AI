@@ -139,6 +139,40 @@ def onboard_rider(db: Session, payload: RiderOnboardCreate) -> RiderOnboardRead:
     )
 
 
+def signin_rider(db: Session, phone: str) -> RiderOnboardRead:
+    """Look up an existing rider by their phone number (stored as email).
+
+    The frontend stores the phone as <digits>@rider.hustleguard.com.
+    Accepts either the raw phone number (digits only) or the full email.
+
+    Raises ValueError if no account is found.
+    """
+    # Normalise: strip non-digits, construct the email key
+    digits = "".join(c for c in phone if c.isdigit())
+    email_key = f"{digits}@rider.hustleguard.com"
+
+    rider = db.query(DomainRider).filter(
+        DomainRider.email == email_key
+    ).first()
+
+    if rider is None:
+        raise ValueError(
+            f"No account found for phone '{phone}'. "
+            "Please register using 'Get Protected'."
+        )
+
+    logger.info(f"Rider sign-in: id={rider.id} name={rider.name!r} zone={rider.home_zone!r}")
+    return RiderOnboardRead(
+        id=rider.id,
+        name=rider.name,
+        email=rider.email,
+        city=rider.city,
+        home_zone=rider.home_zone,
+        reliability_score=rider.reliability_score,
+        created_at=rider.created_at.isoformat(),
+    )
+
+
 # ─── Subscription creation ────────────────────────────────────────────────────
 
 def create_subscription(db: Session, payload: SubscriptionCreate) -> SubscriptionRead:

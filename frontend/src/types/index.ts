@@ -1,5 +1,12 @@
 // ─── All shared TypeScript types for HustleGuard AI frontend ─────────────────
 
+export type ZoneRead = {
+  id: number;
+  name: string;
+  city: string;
+  baseline_dai?: number | null;
+};
+
 export type ZoneLiveData = {
   zone_name: string;
   rainfall_mm: number;
@@ -25,6 +32,7 @@ export type TriggerResponse = {
   predicted_dai: number;
   risk_label: string;
   trigger_reason?: string;
+  payout_event_id?: number | null;
   policy_name?: string;
   dai_threshold_used?: number;
 };

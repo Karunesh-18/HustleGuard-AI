@@ -141,7 +141,10 @@ def subscribe_rider_to_policy(db: Session, data: RiderPolicyCreate) -> RiderPoli
     ).update({"active": False})
 
     now = datetime.utcnow()
-    eligible_from = now + timedelta(days=policy.waiting_period_days)
+    # waive_waiting_period=True skips the delay — used after confirmed payment.
+    # The waiting period prevents opportunistic fraud (signing up right before a storm),
+    # but completing payment is proof of good faith, so we waive it here.
+    eligible_from = now if data.waive_waiting_period else now + timedelta(days=policy.waiting_period_days)
 
     enrollment = RiderPolicy(
         rider_id=data.rider_id,
@@ -192,10 +195,17 @@ def check_policy_allows_claim_type(
     db: Session,
     rider_id: int,
     claim_type: str,
+    zone_dai: float | None = None,
+    rainfall: float | None = None,
 ) -> tuple[bool, str]:
     """Check whether a rider's active policy permits the requested claim type.
 
     Returns (allowed, reason_if_not_allowed).
+
+    Emergency override: if zone_dai < 0.5 OR rainfall > 60mm, the waiting period
+    is bypassed for manual_distress claims. An active disruption should never
+    lock a rider out of the panic button — the waiting period is meant to prevent
+    abuse on fair-weather days, not during actual emergencies.
     """
     enrollment = get_rider_active_policy(db, rider_id)
     if enrollment is None:
@@ -213,8 +223,20 @@ def check_policy_allows_claim_type(
 
     # Check eligibility window (waiting period)
     if enrollment.eligible_from and datetime.utcnow() < enrollment.eligible_from:
-        days_remaining = (enrollment.eligible_from - datetime.utcnow()).days + 1
-        return False, f"Policy waiting period active — eligible in {days_remaining} day(s)."
+        # Emergency override: bypass waiting period when active disruption is confirmed
+        # This allows riders who just enrolled to claim during an ongoing event.
+        is_emergency = (
+            claim_type == "manual_distress"
+            and ((zone_dai is not None and zone_dai < 0.50) or (rainfall is not None and rainfall > 60.0))
+        )
+        if not is_emergency:
+            days_remaining = (enrollment.eligible_from - datetime.utcnow()).days + 1
+            return False, f"Policy waiting period active — eligible in {days_remaining} day(s)."
+        else:
+            logger.info(
+                f"Rider {rider_id}: waiting period bypassed — active disruption confirmed "
+                f"(dai={zone_dai}, rain={rainfall}mm)"
+            )
 
     return True, ""
 

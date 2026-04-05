@@ -1,6 +1,45 @@
 # Changes
 
-## 2026-04-04 — Dynamic Policy Recommendations, Razorpay Integration & Home Page Redesign
+## 2026-04-05 — Code Review Fixes (Security, Bugs, Rate Limiting, Frontend)
+
+### Security
+- **`backend/.env`**: Removed from git tracking with `git rm --cached`. File stays locally but is no longer committed. `.gitignore` already had `backend/.env` listed — confirmed clean.
+
+### Backend — Critical Bug Fixes
+- **`backend/app/schemas/domain.py`**: Eliminated ~215 lines of duplicate class definitions. A second copy of `ZoneRead`, `RiderCreate`, `RiderRead`, `ClaimCreate`, `ClaimEvaluationRequest`, `ClaimRead`, `PayoutRead`, `ClaimDecisionResponse`, `ZoneLiveDataRead`, `PayoutEventRead`, `RiderOnboardCreate`, `RiderOnboardRead`, `SubscriptionCreate`, `SubscriptionRead`, `PremiumCalculateRequest`, `PremiumCalculateResponse`, `TriggerEvaluateRequest`, and `TriggerEvaluateResponse` all shadowed the canonical definitions. The second `ClaimRead` was especially dangerous — it was missing 8 fields (claim_type, distress_reason, etc.) and would have caused silently wrong API responses.
+- **`backend/app/services/claim_service.py`**: Fixed dead code in the community claim handler — `sum(c.rider_id for c in created_claims) * 0` was always zero. Replaced with the plain `len(created_claims) * payout_per_rider`.
+- **`backend/ml/feature_contracts.py`**: Synced `MODEL1_FEATURES` (was 4 features, now 12 matching `pipeline.py`) and `MODEL2_FEATURES` (was 4 features, now 9 matching `pipeline.py`). Added warnings in docstring that changing these requires model retraining.
+- **`backend/ml/evaluate_models.py`**: Wrapped in `if __name__ == "__main__":` (was running module-scope code on import). Fixed column names (`AQI` → `aqi`, `traffic_speed` → canonical pipeline columns, removed `future_dai` from features). Added Model 1 R²/MAE evaluation. Feature lists now sourced from `pipeline.py`.
+- **`backend/ml/confusion_matrix.py`**: Fixed column name mismatches. Properly reconstructs Model 2 test features including `predicted_dai` from Model 1 (matching pipeline training construction).
+
+### Backend — Rate Limiting
+- **`backend/app/routers/claims.py`**: Added in-process sliding-window rate limiter to `POST /api/v1/claims/manual-distress` — max 5 submissions per rider per 60 seconds. Returns HTTP 429 with `Retry-After` header. No new dependencies (uses `threading.Lock` + `collections.defaultdict`). Note: for multi-worker deployments, replace with a Redis-backed counter.
+
+### Backend — Zone Refresh Health Monitoring
+- **`backend/main.py`**: Background zone refresh loop now records `app.state.zone_refresh_last_ok` (monotonic timestamp) and `app.state.zone_refresh_fail_count` on each iteration.
+- **`backend/app/routers/health.py`**: `GET /health` now returns `zone_refresh_last_ok`, `zone_refresh_fail_count`, and sets `status: "degraded"` when fail count ≥ 3. Enables monitoring to detect silently stopped background tasks.
+
+### Frontend Fixes
+- **`frontend/next.config.ts`**: Removed `output: 'export'` and `trailingSlash: true` — these broke dynamic Next.js routing (`useRouter`, API-dependent pages). Capacitor builds should use a separate config override.
+- **`frontend/src/app/admin/layout.tsx`**: Removed hardcoded `Demo PIN: 2026` hint text from rendered UI. PIN is now read entirely from `NEXT_PUBLIC_ADMIN_PIN` env var (fallback `"2026"`) without being displayed on screen.
+- **`frontend/src/app/(app)/profile/page.tsx`**: Replaced fake pre-linked payment methods (`Linked via GPay`, `ICICI **** 4321`) with an honest Razorpay UPI placeholder that accurately states payouts go via the account used during premium payment.
+- **`frontend/src/app/(app)/home/page.tsx`**: Added proper error/offline handling — when the backend is unreachable, shows a red error banner with a Retry button instead of leaving users with eternal skeleton spinners.
+- **`frontend/src/hooks/useRazorpay.ts`**: Added `sdkBlocked` state that fires when the Razorpay CDN script fails to load (ad-blocker or network block). `openCheckout` now returns a clear "disable ad-blocker" error instead of the confusing "script not loaded" fallback.
+
+## 2026-04-05 — Auto-Payout Trigger Pipeline & Claims Fix
+
+### Auto-Payout on DAI Drop (Closed the loop)
+
+- **`backend/app/routers/admin.py`**: `POST /api/v1/admin/simulate-disruption` now evaluates the ML parametric trigger after injecting extreme conditions. If disruption is confirmed (DAI < 0.40, rainfall > 80mm, AQI > 300, or ML probability ≥ 0.40), a `Disruption` record and a `PayoutEvent` are persisted automatically. Response now includes `trigger` (ML evaluation result) and `payout_event_id`.
+- **`frontend/src/hooks/useLiveData.ts`**: When `useLiveData` detects a zone's DAI crossing below 0.4 (falling edge), it now calls `evaluateTrigger()` on the backend (non-blocking, fire-and-forget). A second toast is shown if the trigger fires successfully.
+- **`frontend/src/lib/api.ts`**: Fixed `evaluateTrigger` — was passing `zone.traffic_index` (0-100 congestion index) as `traffic_speed`, now correctly converts it to km/h using `max(5, 80 - traffic_index)` to match the backend ML model's expected input.
+- **`frontend/src/types/index.ts`**: Added `payout_event_id?: number | null` to `TriggerResponse` type.
+
+### Manual Distress Claim Fix (400 Error)
+
+- **`frontend/src/app/(app)/claims/page.tsx`**: Added early-return guard for `rider.id` being undefined (unregistered rider hitting the panic button) — now shows a clear "Please complete onboarding first" message instead of sending `rider_id: undefined` which caused a 400. Improved 400 vs 503 error messages to guide the user to their profile for policy status.
+
+
 
 ### Dynamic Policy Recommendation & Razorpay Onboarding
 - **ML-Driven Recommendations**: Removed static plan choices from the profile. Implemented a new `/api/v1/policies/recommend/{rider_id}` endpoint that dynamically recommends exactly one plan based on the user's home zone ML risk, reliability score, and recent claim history.

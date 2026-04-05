@@ -83,20 +83,34 @@ export default function HomePage() {
   const [rider, setRider] = useState<Rider | null>(null);
   const [quote, setQuote] = useState<PolicyQuoteResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const fetchData = useCallback(async (riderData?: Rider) => {
     try {
       const r = riderData ?? rider;
-      const fetches: Promise<void>[] = [
-        getZoneLiveData().then(setZones).catch(() => {}),
-        getRecentPayouts().then(setPayouts).catch(() => {}),
-      ];
-      if (r?.home_zone && !quote) {
-        fetches.push(quotePolicy(r.home_zone, r.reliability_score ?? 60).then(setQuote).catch(() => {}));
+      const [zonesResult, payoutsResult] = await Promise.allSettled([
+        getZoneLiveData(),
+        getRecentPayouts(),
+      ]);
+
+      let fetchError: string | null = null;
+
+      if (zonesResult.status === "fulfilled") {
+        setZones(zonesResult.value);
+      } else {
+        fetchError = "Backend unreachable — check your connection.";
       }
-      await Promise.allSettled(fetches);
-      setLastUpdated(new Date());
+      if (payoutsResult.status === "fulfilled") {
+        setPayouts(payoutsResult.value);
+      }
+
+      if (r?.home_zone && !quote) {
+        quotePolicy(r.home_zone, r.reliability_score ?? 60).then(setQuote).catch(() => {});
+      }
+
+      setError(fetchError);
+      if (!fetchError) setLastUpdated(new Date());
     } finally {
       setLoading(false);
     }
@@ -149,6 +163,37 @@ export default function HomePage() {
           </div>
         )}
       </div>
+
+      {/* ── Backend error banner ─────────────────────────────────────────── */}
+      {!loading && error && (
+        <div style={{
+          padding: "12px 16px",
+          borderRadius: "var(--radius-md)",
+          background: "rgba(239,68,68,0.08)",
+          border: "1px solid rgba(239,68,68,0.3)",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+        }}>
+          <AlertIcon size={18} color="var(--danger)" />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--danger)" }}>
+              {error}
+            </div>
+            <div className="body-sm" style={{ color: "var(--text-tertiary)", marginTop: 2 }}>
+              Live data may be stale. Retrying automatically every 15s.
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => { void fetchData(); }}
+            style={{ padding: "6px 12px", fontSize: "0.8125rem", flexShrink: 0 }}
+          >
+            <RefreshIcon size={13} color="var(--text-primary)" /> Retry
+          </button>
+        </div>
+      )}
 
       {/* ── Home zone hero card ─────────────────────────────────────────── */}
       {loading && !homeZone ? (
