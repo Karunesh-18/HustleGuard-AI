@@ -207,3 +207,11 @@ export async function predictDisruption(data: {
     body: JSON.stringify(data),
   });
 }
+
+export async function simulateDisruption(zoneName: string): Promise<void> {
+  return apiFetch(`/api/v1/admin/simulate-disruption`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ zone_name: zoneName })
+  });
+}
