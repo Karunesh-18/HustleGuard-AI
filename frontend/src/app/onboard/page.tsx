@@ -49,7 +49,8 @@ export default function OnboardPage() {
         home_zone: form.home_zone,
         reliability_score: 60,
       });
-      await subscribeRiderToPolicy(rider.id, "Standard Guard");
+      // Removed auto-subscribe so rider goes to Home "Not Protected" state 
+      // and proceeds through the Razorpay Premium flow.
       localStorage.setItem("hg_rider", JSON.stringify(rider));
       setStep(3);
       setTimeout(() => router.push("/home"), 1500);

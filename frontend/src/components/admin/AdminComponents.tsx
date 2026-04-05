@@ -4,6 +4,7 @@ import { fmtInr, fmtTime, probColor } from "@/lib/formatters";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ProgressBar } from "@/components/shared/ProgressBar";
+import { simulateDisruption } from "@/lib/api";
 import type { ZoneLiveData, TriggerResponse } from "@/types";
 
 export function MLForecastBars({
@@ -131,7 +132,7 @@ export function ZoneAdminTable({ zones }: { zones: ZoneLiveData[] }) {
     <table className="data-table">
       <thead>
         <tr>
-          <th>Zone</th><th>DAI</th><th>Workability</th><th>Rain</th><th>AQI</th><th>Traffic</th><th>Updated</th><th>Status</th>
+          <th>Zone</th><th>DAI</th><th>Workability</th><th>Rain</th><th>AQI</th><th>Traffic</th><th>Updated</th><th>Status</th><th>Action</th>
         </tr>
       </thead>
       <tbody>
@@ -153,6 +154,19 @@ export function ZoneAdminTable({ zones }: { zones: ZoneLiveData[] }) {
               <td>{z.traffic_index}</td>
               <td className="td-muted">{fmtTime(z.updated_at)}</td>
               <td><StatusBadge label={st === "disrupted" ? "Disrupted" : st === "warning" ? "Moderate" : "Normal"} variant={st} /></td>
+              <td>
+                <button 
+                  className="btn-secondary" 
+                  style={{ padding: "4px 8px", fontSize: 11 }}
+                  onClick={async () => {
+                   await simulateDisruption(z.zone_name);
+                   alert(`Simulated severe disruption in ${z.zone_name}. Refreshing data in 3s.`);
+                  }}
+                  type="button"
+                >
+                  ⚡ Trigger
+                </button>
+              </td>
             </tr>
           );
         })}
