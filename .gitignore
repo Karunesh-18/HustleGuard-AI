@@ -46,6 +46,9 @@ pnpm-debug.log*
 # Build artifacts
 dist/
 build/
+frontend/android/
+frontend/.gradle/
+frontend/capacitor-cordova-android-plugins/
 backend/ml/models/*.pkl
 backend/ml/datasets/
 backend/ml/confusion_matrix.png
