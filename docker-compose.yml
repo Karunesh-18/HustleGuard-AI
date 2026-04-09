@@ -1,0 +1,157 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database with optimization
+  postgres:
+    image: postgres:16-alpine
+    container_name: hustleguard_postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-hustleguard}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-hustleguard_dev_password}
+      POSTGRES_DB: ${DB_NAME:-hustleguard_db}
+      # PostgreSQL tuning for performance
+      POSTGRES_INITDB_ARGS: "-c shared_buffers=256MB -c effective_cache_size=1GB -c maintenance_work_mem=64MB -c checkpoint_completion_target=0.9 -c wal_buffers=16MB -c default_statistics_target=100 -c max_connections=100 -c random_page_cost=1.1"
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hustleguard}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '${DB_CPU_LIMIT:-2}'
+          memory: 2G
+        reservations:
+          cpus: '${DB_CPU_RESERVE:-1}'
+          memory: 1G
+    # Logging optimization
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    networks:
+      - hustleguard_network
+    sysctls:
+      - net.ipv4.tcp_keepalives_idle=60
+      - net.ipv4.tcp_keepalives_intvl=10
+      - net.ipv4.tcp_keepalives_probes=5
+
+  # FastAPI Backend with optimization
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      # Build optimization flags
+      args:
+        BUILDKIT_INLINE_CACHE: '1'
+    container_name: hustleguard_backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-hustleguard}:${DB_PASSWORD:-hustleguard_dev_password}@postgres:5432/${DB_NAME:-hustleguard_db}?connect_timeout=10&statement_timeout=30000
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Connection pooling optimization
+      SQLALCHEMY_POOL_SIZE: '${BACKEND_POOL_SIZE:-20}'
+      SQLALCHEMY_POOL_RECYCLE: '${BACKEND_POOL_RECYCLE:-3600}'
+      SQLALCHEMY_POOL_PRE_PING: 'true'
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --loop uvloop --workers 4
+    # Resource limits for backend
+    deploy:
+      resources:
+        limits:
+          cpus: '${BACKEND_CPU_LIMIT:-1.5}'
+          memory: 1G
+        reservations:
+          cpus: '${BACKEND_CPU_RESERVE:-0.5}'
+          memory: 512M
+    # Logging optimization
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    networks:
+      - hustleguard_network
+    restart: unless-stopped
+    sysctls:
+      - net.ipv4.tcp_keepalives_idle=60
+      - net.ipv4.tcp_keepalives_intvl=10
+      - net.ipv4.tcp_keepalives_probes=5
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  # Next.js Frontend with optimization
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      # Build optimization flags
+      args:
+        BUILDKIT_INLINE_CACHE: '1'
+    container_name: hustleguard_frontend
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NODE_ENV: ${NODE_ENV:-development}
+      # Memory optimization for Node.js
+      NODE_OPTIONS: '--max-old-space-size=512'
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
+    # Resource limits for frontend
+    deploy:
+      resources:
+        limits:
+          cpus: '${FRONTEND_CPU_LIMIT:-1}'
+          memory: 768M
+        reservations:
+          cpus: '${FRONTEND_CPU_RESERVE:-0.5}'
+          memory: 384M
+    # Logging optimization
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    networks:
+      - hustleguard_network
+    restart: unless-stopped
+    sysctls:
+      - net.ipv4.tcp_keepalives_idle=60
+      - net.ipv4.tcp_keepalives_intvl=10
+      - net.ipv4.tcp_keepalives_probes=5
+
+volumes:
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1G,noexec,nosuid,nodev
+
+networks:
+  hustleguard_network:
+    driver: bridge
+    driver_opts:
+      # Network optimization
+      com.docker.network.driver.mtu: '1500'
+      com.docker.network.bridge.name: 'hustleguard_br0'
