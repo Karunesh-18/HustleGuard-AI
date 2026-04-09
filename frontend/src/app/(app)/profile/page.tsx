@@ -2,9 +2,10 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { getRiderPolicy, quotePolicy, getRiderClaims } from "@/lib/api";
-import type { RiderPolicyRead, PolicyQuoteResponse, ClaimRead } from "@/types";
+import { getRiderPolicy, quotePolicy, getRiderClaims, getRecentPayouts, subscribeRiderToPolicy } from "@/lib/api";
+import type { RiderPolicyRead, PolicyQuoteResponse, ClaimRead, PayoutEventRead, PolicyQuotedPlan } from "@/types";
 import { useRazorpay } from "@/hooks/useRazorpay";
+import PlanSelector from "@/components/PlanSelector";
 import {
   UserIcon, MapPinIcon, ShieldIcon, ZapIcon, ActivityIcon,
   CreditCardIcon, BanknoteIcon, CheckIcon, ChevronRightIcon,
@@ -13,13 +14,7 @@ import {
 
 type Rider = { id?: number; name?: string; home_zone?: string; reliability_score?: number };
 
-// ── Mock payment methods ─────────────────────────────────────────────────────
-// Real integration would use Razorpay or Cashfree SDK
-const PAYMENT_METHODS = [
-  { id: "upi",  label: "UPI",           sub: "Linked via GPay",        icon: ZapIcon,        active: true },
-  { id: "bank", label: "Bank Account",  sub: "ICICI **** 4321",        icon: BanknoteIcon,   active: false },
-  { id: "card", label: "Debit Card",    sub: "Add a card",             icon: CreditCardIcon, active: false },
-] as const;
+
 
 function StatusRow({ label, value, accent }: { label: string; value: string | number; accent?: boolean }) {
   return (
@@ -38,10 +33,15 @@ export default function ProfilePage() {
   const [policy, setPolicy] = useState<RiderPolicyRead | null>(null);
   const [quote, setQuote] = useState<PolicyQuoteResponse | null>(null);
   const [claims, setClaims] = useState<ClaimRead[]>([]);
+  const [payoutEvents, setPayoutEvents] = useState<PayoutEventRead[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"coverage" | "payouts" | "payment">("coverage");
   const [paymentResult, setPaymentResult] = useState<{ success: boolean; message: string } | null>(null);
-  const { loading: payLoading, openCheckout } = useRazorpay();
+  // Change-plan state
+  const [changingPlan, setChangingPlan] = useState(false);
+  const [selectedNewPlan, setSelectedNewPlan] = useState<PolicyQuotedPlan | null>(null);
+  const [planChangeResult, setPlanChangeResult] = useState<{ success: boolean; message: string } | null>(null);
+  const { loading: payLoading, sdkBlocked, openCheckout } = useRazorpay();
 
   useEffect(() => {
     const raw = localStorage.getItem("hg_rider");
@@ -57,6 +57,8 @@ export default function ProfilePage() {
       if (r.home_zone) {
         fetches.push(quotePolicy(r.home_zone, r.reliability_score ?? 60).then(setQuote).catch(() => {}));
       }
+      // Always fetch zone payout events — shows disruption payouts from simulate-disruption
+      fetches.push(getRecentPayouts().then(setPayoutEvents).catch(() => {}));
       Promise.allSettled(fetches).finally(() => setLoading(false));
     } catch {
       router.replace("/onboard");
@@ -67,6 +69,45 @@ export default function ProfilePage() {
     localStorage.removeItem("hg_rider");
     router.replace("/onboard");
   };
+
+  /** Pay for a new plan then subscribe the rider to it. */
+  const handleChangePlan = useCallback(async () => {
+    if (!rider?.id || !selectedNewPlan || !quote) return;
+    setPlanChangeResult(null);
+
+    // Payment step (skip if Razorpay blocked)
+    let payOk = sdkBlocked;
+    if (!sdkBlocked) {
+      const result = await openCheckout({
+        amount_inr: selectedNewPlan.quoted_premium_inr,
+        rider_id: rider.id,
+        purpose: "premium",
+        name: rider.name ?? "",
+        description: `${selectedNewPlan.policy_name} — weekly premium (${quote.zone_name})`,
+      });
+      payOk = result.success;
+      if (!result.success) {
+        setPlanChangeResult({ success: false, message: `Payment failed: ${result.error}` });
+        return;
+      }
+    }
+
+    if (payOk) {
+      try {
+        await subscribeRiderToPolicy(rider.id, selectedNewPlan.policy_name);
+        // Refresh policy
+        if (rider.id) {
+          const updated = await getRiderPolicy(rider.id);
+          if (updated) setPolicy(updated);
+        }
+        setPlanChangeResult({ success: true, message: `Switched to ${selectedNewPlan.policy_name} ✓` });
+        setChangingPlan(false);
+        setSelectedNewPlan(null);
+      } catch (e) {
+        setPlanChangeResult({ success: false, message: e instanceof Error ? e.message : "Plan change failed." });
+      }
+    }
+  }, [rider, selectedNewPlan, quote, sdkBlocked, openCheckout]);
 
   const activePlan = quote?.plans.find((p) => p.policy_name === policy?.policy_name) ?? quote?.plans[1];
   const riskColor = quote?.risk_label === "high" ? "var(--danger)" : quote?.risk_label === "moderate" ? "var(--warning)" : "var(--accent)";
@@ -183,7 +224,7 @@ export default function ProfilePage() {
                 </div>
               )}
 
-              {/* Plan details */}
+            {/* Plan details metric strip */}
               <div className="grid-3" style={{ gap: 8 }}>
                 {[
                   { label: "Payout", value: `₹${activePlan.payout_per_disruption_inr}` },
@@ -196,48 +237,63 @@ export default function ProfilePage() {
                   </div>
                 ))}
               </div>
+
+              {/* Change plan button */}
+              {!changingPlan && (
+                <button
+                  className="btn btn-ghost"
+                  type="button"
+                  onClick={() => { setChangingPlan(true); setPlanChangeResult(null); setSelectedNewPlan(null); }}
+                  style={{ marginTop: 6, fontSize: "0.875rem", padding: "10px 0" }}
+                >
+                  <LayersIcon size={15} color="var(--brand-light)" /> Change Coverage Plan
+                </button>
+              )}
             </div>
 
-            {/* All 3 tiers comparison */}
-            {quote && (
+            {/* ── Inline Plan Change ── */}
+            {changingPlan && quote && (
               <div className="card">
-                <div className="row" style={{ gap: 8, marginBottom: 12 }}>
-                  <InfoIcon size={16} color="var(--text-tertiary)" />
-                  <span style={{ fontWeight: 700, fontSize: "0.9375rem" }}>All Policy Tiers</span>
+                <div className="row justify-between" style={{ marginBottom: 14 }}>
+                  <div style={{ fontWeight: 700, fontSize: "0.9375rem" }}>Choose a new plan</div>
+                  <button type="button" onClick={() => { setChangingPlan(false); setSelectedNewPlan(null); setPlanChangeResult(null); }}
+                    style={{ background: "none", border: "none", color: "var(--text-tertiary)", cursor: "pointer", fontSize: "0.8125rem" }}>
+                    ✕ Cancel
+                  </button>
                 </div>
-                <div className="stack" style={{ gap: 8 }}>
-                  {quote.plans.map((plan) => {
-                    const isCurrent = plan.policy_name === (policy?.policy_name ?? "Standard Guard");
-                    return (
-                      <div key={plan.policy_name} style={{
-                        padding: "12px 14px", borderRadius: "var(--radius-md)",
-                        border: `1px solid ${isCurrent ? "var(--brand-border)" : "var(--border)"}`,
-                        background: isCurrent ? "var(--brand-muted)" : "var(--bg-raised)",
-                      }}>
-                        <div className="row justify-between" style={{ marginBottom: 4 }}>
-                          <div className="row" style={{ gap: 8 }}>
-                            <span style={{ fontWeight: 700, fontSize: "0.9rem", color: isCurrent ? "var(--brand-light)" : "var(--text-primary)" }}>
-                              {plan.policy_name}
-                            </span>
-                            {isCurrent && <div className="badge badge-brand" style={{ fontSize: "0.5625rem" }}>Current</div>}
-                          </div>
-                          <div className="row" style={{ gap: 2 }}>
-                            <span style={{ fontWeight: 700, color: isCurrent ? "var(--brand-light)" : "var(--text-primary)", fontSize: "1rem" }}>₹{plan.quoted_premium_inr}</span>
-                            <span className="body-sm" style={{ color: "var(--text-tertiary)" }}>/wk</span>
-                          </div>
-                        </div>
-                        <div className="body-sm" style={{ color: "var(--text-tertiary)" }}>
-                          Payout ₹{plan.payout_per_disruption_inr} · DAI trigger &lt;{plan.dai_trigger_threshold.toFixed(2)} · {plan.max_claims_per_week} claims/wk
-                          {plan.supports_partial_disruption && " · Partial claims"}
-                          {plan.supports_community_claims && " · Community"}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="body-sm" style={{ color: "var(--text-tertiary)", marginTop: 10, textAlign: "center" }}>
-                  Premiums adjusted based on {rider?.home_zone} zone risk
-                </div>
+
+                <PlanSelector
+                  quote={quote}
+                  currentPolicyName={policy?.policy_name}
+                  selectedPlan={selectedNewPlan?.policy_name ?? null}
+                  onSelect={setSelectedNewPlan}
+                />
+
+                {planChangeResult && (
+                  <div style={{
+                    marginTop: 10, padding: "10px 12px", borderRadius: "var(--radius-md)",
+                    background: planChangeResult.success ? "rgba(6,214,160,0.08)" : "rgba(239,68,68,0.08)",
+                    border: `1px solid ${planChangeResult.success ? "var(--accent)" : "var(--danger)"}`,
+                    fontSize: "0.8125rem", fontWeight: 600,
+                    color: planChangeResult.success ? "var(--accent)" : "var(--danger)",
+                  }}>
+                    {planChangeResult.message}
+                  </div>
+                )}
+
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  disabled={!selectedNewPlan || selectedNewPlan.policy_name === policy?.policy_name || payLoading}
+                  onClick={handleChangePlan}
+                  style={{ marginTop: 12, padding: "13px 0", fontSize: "0.9rem" }}
+                >
+                  {payLoading
+                    ? <><span className="spinner" /> Processing…</>
+                    : selectedNewPlan && selectedNewPlan.policy_name !== policy?.policy_name
+                      ? <>Pay ₹{selectedNewPlan.quoted_premium_inr} · Switch to {selectedNewPlan.policy_name}</>
+                      : "Select a different plan to switch"}
+                </button>
               </div>
             )}
           </div>
@@ -324,6 +380,44 @@ export default function ProfilePage() {
               <div className="metric-value" style={{ color: "var(--accent)" }}>{loading ? "—" : instantClaims}</div>
             </div>
           </div>
+
+          {/* Zone disruption payout events (from simulate-disruption + parametric triggers) */}
+          {payoutEvents.length > 0 && (
+            <div className="card">
+              <div className="row" style={{ gap: 8, marginBottom: 12 }}>
+                <ZapIcon size={14} color="var(--accent)" />
+                <span style={{ fontWeight: 700, fontSize: "0.875rem" }}>Zone Disruption Events</span>
+                <div className="badge badge-accent" style={{ marginLeft: "auto", fontSize: "0.5625rem" }}>LIVE</div>
+              </div>
+              <div className="body-sm" style={{ color: "var(--text-tertiary)", marginBottom: 10, lineHeight: 1.5 }}>
+                Automatic payouts triggered by verified zone-wide disruptions. All eligible riders receive these.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                {payoutEvents.slice(0, 5).map((ev, i) => (
+                  <div key={ev.id} style={{
+                    padding: "10px 0",
+                    borderBottom: i < Math.min(payoutEvents.length, 5) - 1 ? "1px solid var(--border)" : "none",
+                    display: "flex", alignItems: "flex-start", gap: 10,
+                  }}>
+                    <div style={{
+                      width: 8, height: 8, borderRadius: "50%",
+                      background: "var(--accent)", flexShrink: 0, marginTop: 5,
+                    }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: "0.8125rem" }}>{ev.zone_name}</div>
+                      <div className="body-sm" style={{ color: "var(--text-tertiary)" }}>{ev.trigger_reason}</div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: "0.875rem", color: "var(--accent)" }}>₹{ev.payout_amount_inr}</div>
+                      <div className="body-sm" style={{ color: "var(--text-tertiary)" }}>{ev.eligible_riders} riders</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Personal claims history */}
           {loading ? (
             <div className="skeleton-shimmer" style={{ height: 200 }} />
           ) : claims.length === 0 ? (
@@ -331,47 +425,50 @@ export default function ProfilePage() {
               <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
                 <BanknoteIcon size={36} color="var(--text-tertiary)" />
               </div>
-              <div className="empty-title">No claims yet</div>
-              <div className="empty-body">Submit your first claim from the Claims tab</div>
+              <div className="empty-title">No personal claims yet</div>
+              <div className="empty-body">Submit a panic button claim from the Claims tab</div>
             </div>
           ) : (
-            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-              {claims.slice(0, 10).map((c, i) => {
-                const isInstant = c.decision === "instant_payout";
-                const isProvisional = c.decision === "provisional_payout_with_review";
-                const statusColor = isInstant ? "var(--accent)" : isProvisional ? "var(--warning)" : "var(--text-tertiary)";
-                return (
-                  <div key={c.id} style={{
-                    padding: "12px 14px",
-                    borderBottom: i < claims.length - 1 ? "1px solid var(--border)" : "none",
-                    display: "flex", alignItems: "center", gap: 12,
-                  }}>
-                    <div style={{
-                      width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
-                      background: isInstant ? "var(--accent-muted)" : "var(--bg-raised)",
-                      display: "flex", alignItems: "center", justifyContent: "center",
+            <div>
+              <div className="label" style={{ color: "var(--text-tertiary)", marginBottom: 8 }}>Your Claims</div>
+              <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+                {claims.slice(0, 10).map((c, i) => {
+                  const isInstant = c.decision === "instant_payout";
+                  const isProvisional = c.decision === "provisional_payout_with_review";
+                  const statusColor = isInstant ? "var(--accent)" : isProvisional ? "var(--warning)" : "var(--text-tertiary)";
+                  return (
+                    <div key={c.id} style={{
+                      padding: "12px 14px",
+                      borderBottom: i < claims.length - 1 ? "1px solid var(--border)" : "none",
+                      display: "flex", alignItems: "center", gap: 12,
                     }}>
-                      {isInstant ? <ZapIcon size={16} color="var(--accent)" /> : <ClockIcon size={16} color="var(--text-tertiary)" />}
+                      <div style={{
+                        width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+                        background: isInstant ? "var(--accent-muted)" : "var(--bg-raised)",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        {isInstant ? <ZapIcon size={16} color="var(--accent)" /> : <ClockIcon size={16} color="var(--text-tertiary)" />}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: "0.875rem", textTransform: "capitalize" }}>
+                          {c.claim_type.replace(/_/g, " ")}
+                        </div>
+                        <div className="body-sm" style={{ color: "var(--text-tertiary)" }}>
+                          {new Date(c.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: statusColor }}>
+                          {c.decision.replace(/_/g, " ")}
+                        </div>
+                        <div className="body-sm" style={{ color: "var(--text-tertiary)" }}>
+                          Score: {Math.round(c.trust_score)}
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: "0.875rem", textTransform: "capitalize" }}>
-                        {c.claim_type.replace(/_/g, " ")}
-                      </div>
-                      <div className="body-sm" style={{ color: "var(--text-tertiary)" }}>
-                        {new Date(c.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: statusColor }}>
-                        {c.decision.replace(/_/g, " ")}
-                      </div>
-                      <div className="body-sm" style={{ color: "var(--text-tertiary)" }}>
-                        Score: {Math.round(c.trust_score)}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -426,43 +523,35 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {/* Payout methods */}
+          {/* Payout info */}
           <div className="card">
             <div className="row" style={{ gap: 8, marginBottom: 14 }}>
               <BanknoteIcon size={16} color="var(--accent)" />
               <span style={{ fontWeight: 700, fontSize: "0.9375rem" }}>Payout Account</span>
             </div>
-            <div className="body-sm" style={{ color: "var(--text-secondary)", marginBottom: 14 }}>
-              Payouts are sent here automatically when a disruption claim is approved.
+            <div className="body-sm" style={{ color: "var(--text-secondary)", marginBottom: 14, lineHeight: 1.6 }}>
+              Payouts are processed automatically via Razorpay to the UPI ID or
+              bank account you used when paying your premium. No separate setup needed.
             </div>
-            <div className="stack" style={{ gap: 8 }}>
-              {([
-                { id: "upi",  label: "UPI",          sub: "Linked via GPay",  icon: ZapIcon,       active: true },
-                { id: "bank", label: "Bank Account", sub: "ICICI **** 4321",  icon: BanknoteIcon,  active: false },
-                { id: "card", label: "Debit Card",   sub: "Add a card",       icon: CreditCardIcon,active: false },
-              ] as const).map(({ id, label, sub, icon: Icon, active }) => (
-                <div key={id} style={{
-                  padding: "12px 14px", borderRadius: "var(--radius-md)",
-                  border: `1px solid ${active ? "var(--accent-border)" : "var(--border)"}`,
-                  background: active ? "var(--accent-muted)" : "var(--bg-raised)",
-                  display: "flex", alignItems: "center", gap: 12,
-                }}>
-                  <div style={{
-                    width: 36, height: 36, borderRadius: "var(--radius-md)",
-                    background: active ? "rgba(6,214,160,0.15)" : "var(--bg-hover)",
-                    display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                  }}>
-                    <Icon size={18} color={active ? "var(--accent)" : "var(--text-secondary)"} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: "0.9rem", color: active ? "var(--accent)" : "var(--text-primary)" }}>{label}</div>
-                    <div className="body-sm" style={{ color: "var(--text-tertiary)" }}>{sub}</div>
-                  </div>
-                  {active
-                    ? <CheckIcon size={16} color="var(--accent)" />
-                    : <ChevronRightIcon size={16} color="var(--text-tertiary)" />}
+            <div style={{
+              padding: "12px 14px", borderRadius: "var(--radius-md)",
+              background: "var(--accent-muted)", border: "1px solid var(--accent-border)",
+              display: "flex", alignItems: "center", gap: 12,
+            }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: "var(--radius-md)",
+                background: "rgba(6,214,160,0.15)",
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              }}>
+                <ZapIcon size={18} color="var(--accent)" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--accent)" }}>Razorpay UPI</div>
+                <div className="body-sm" style={{ color: "var(--text-tertiary)" }}>
+                  Linked during premium payment
                 </div>
-              ))}
+              </div>
+              <CheckIcon size={16} color="var(--accent)" />
             </div>
           </div>
 

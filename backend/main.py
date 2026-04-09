@@ -81,10 +81,15 @@ async def lifespan(app: FastAPI):
                 db = SessionLocal()
                 try:
                     refresh_all_zones(db)
+                    app.state.zone_refresh_last_ok = asyncio.get_event_loop().time()
+                    app.state.zone_refresh_fail_count = 0
                 finally:
                     db.close()
             except Exception as exc:
-                logger.warning(f"Background zone refresh failed: {exc}")
+                app.state.zone_refresh_fail_count = getattr(app.state, "zone_refresh_fail_count", 0) + 1
+                logger.warning(
+                    f"Background zone refresh failed (attempt #{app.state.zone_refresh_fail_count}): {exc}"
+                )
             await asyncio.sleep(zone_refresh_interval)
 
     task = asyncio.create_task(_zone_refresh_loop())

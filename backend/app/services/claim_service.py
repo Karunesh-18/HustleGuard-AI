@@ -188,8 +188,12 @@ def create_manual_distress_claim(
     Panic-button claim: rider taps 'I Can't Work' and selects one reason.
     Trust score routes to instant / provisional / hold.
     """
-    # Policy check
-    allowed, reason = check_policy_allows_claim_type(db, payload.rider_id, "manual_distress")
+    # Policy check — passes zone conditions for the emergency waiting-period override
+    allowed, reason = check_policy_allows_claim_type(
+        db, payload.rider_id, "manual_distress",
+        zone_dai=getattr(payload, "zone_dai", None),
+        rainfall=getattr(payload, "rainfall", None),
+    )
     # manual_distress is allowed for all tiers; check only returns False if no policy or in waiting period
     if not allowed:
         raise ValueError(reason)
@@ -408,7 +412,7 @@ def evaluate_community_claim(
 
     db.commit()
 
-    total_paid = sum(c.rider_id for c in created_claims) * 0 + len(created_claims) * payout_per_rider
+    total_paid = len(created_claims) * payout_per_rider
 
     logger.info(
         f"Community claim TRIGGERED | zone={payload.zone_name} riders={len(created_claims)} "

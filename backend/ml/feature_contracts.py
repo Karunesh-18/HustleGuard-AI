@@ -8,6 +8,11 @@ Why this file exists:
 
 Usage:
     from ml.feature_contracts import FEAT_RAINFALL, MODEL1_FEATURES
+
+IMPORTANT — Feature set alignment:
+  MODEL1_FEATURES and MODEL2_FEATURES below reflect what pipeline.py
+  actually trains on (the saved .pkl files).  If you change these lists
+  you MUST retrain the models — the pkl files will be mismatched otherwise.
 """
 
 from __future__ import annotations
@@ -27,6 +32,12 @@ FEAT_AVG_DELIVERY_TIME = "average_delivery_time"
 FEAT_CONGESTION_INDEX = "congestion_index"
 FEAT_ZONE_RISK_SCORE = "zone_risk_score"
 FEAT_HISTORICAL_DISRUPTION_FREQ = "historical_disruption_frequency"
+
+# ── Columns with two common alias names ───────────────────────────────────────
+# pipeline.py stores both "average_traffic_speed" and "traffic_speed" columns
+# in the synthetic dataset for backward compatibility.  MODEL_2_FEATURES uses
+# "traffic_speed" because that's the column name Model 2 was trained with.
+FEAT_TRAFFIC_SPEED_ALIAS = "traffic_speed"
 
 # ── Target variables ───────────────────────────────────────────────────────────
 
@@ -56,19 +67,38 @@ FEAT_DELIVERY_EFFICIENCY = "delivery_efficiency"
 FEAT_ENVIRONMENTAL_STRESS = "environmental_stress"
 
 # ── Model feature sets ─────────────────────────────────────────────────────────
-# The definitive list of features each model was trained on.
-# If these change a retrain is required — treat as a migration.
-
+# These MUST match the feature lists in pipeline.py MODEL_1_FEATURES and
+# MODEL_2_FEATURES.  They represent what the saved .pkl models were trained on.
+#
+# Model 1 — DAI Regression (12 features, from pipeline.py MODEL_1_FEATURES)
 MODEL1_FEATURES: list[str] = [
-    FEAT_RAINFALL,
-    FEAT_AQI,
-    FEAT_TRAFFIC_SPEED,        # average_traffic_speed
-    FEAT_CURRENT_DAI,
+    "rainfall",
+    "temperature",
+    "wind_speed",
+    "aqi",
+    "average_traffic_speed",
+    "congestion_index",
+    "orders_last_5min",
+    "orders_last_15min",
+    "active_riders",
+    "average_delivery_time",
+    "hour_of_day",
+    "day_of_week",
 ]
 
+# Model 2 — Disruption Classification (9 features, from pipeline.py MODEL_2_FEATURES)
+# Note: "traffic_speed" (not "average_traffic_speed") is the column name used
+# at training time; both columns exist in the synthetic dataset.
 MODEL2_FEATURES: list[str] = [
-    FEAT_CURRENT_DAI,
-    FEAT_RAINFALL,
+    "rainfall",
+    "aqi",
+    "wind_speed",
+    "traffic_speed",
+    "congestion_index",
+    "current_dai",
+    "predicted_dai",
+    "historical_disruption_frequency",
+    "zone_risk_score",
 ]
 
 # ── Alias resolution ───────────────────────────────────────────────────────────

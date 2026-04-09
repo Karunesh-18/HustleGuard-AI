@@ -7,7 +7,8 @@ import {
   ShieldIcon, LogOutIcon, SmartphoneIcon, LockIcon,
 } from "@/components/Icon";
 
-const ADMIN_PIN = "2026";
+// PIN is read from env var at check time — see push() below
+const ADMIN_PIN = process.env.NEXT_PUBLIC_ADMIN_PIN ?? "2026";
 
 const NAV = [
   { href: "/admin",        icon: BarChartIcon, label: "Overview" },
@@ -25,8 +26,7 @@ function PinScreen({ onSuccess }: { onSuccess: () => void }) {
     const next = digits + d;
     setDigits(next);
     if (next.length === 4) {
-      const pin = process.env.NEXT_PUBLIC_ADMIN_PIN ?? ADMIN_PIN;
-      if (next === pin) {
+      if (next === ADMIN_PIN) {
         setTimeout(onSuccess, 200);
       } else {
         setTimeout(() => { setDigits(""); setError(true); }, 300);
@@ -71,7 +71,7 @@ function PinScreen({ onSuccess }: { onSuccess: () => void }) {
       </div>
 
       <div className="body-sm" style={{ color: "var(--text-tertiary)", marginTop: 24, fontStyle: "italic" }}>
-        Demo PIN: {ADMIN_PIN}
+        Contact your administrator for access
       </div>
     </div>
   );

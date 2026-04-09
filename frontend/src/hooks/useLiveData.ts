@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getRecentPayouts, getZoneLiveData } from "@/lib/api";
+import { evaluateTrigger, getRecentPayouts, getZoneLiveData } from "@/lib/api";
 import type { PayoutEventRead, Toast, ZoneLiveData } from "@/types";
 
-/** Polls zones + payouts and fires toast notifications on DAI threshold crossings */
+/** Polls zones + payouts and fires toast notifications on DAI threshold crossings.
+ *  When a zone's DAI drops below 0.4, the parametric trigger is evaluated via the
+ *  backend ML pipeline — if confirmed, a PayoutEvent is recorded automatically.
+ */
 export function useLiveData(refreshInterval = 60_000) {
   const [zones, setZones] = useState<ZoneLiveData[]>([]);
   const [payouts, setPayouts] = useState<PayoutEventRead[]>([]);
@@ -30,20 +33,42 @@ export function useLiveData(refreshInterval = 60_000) {
         getRecentPayouts(),
       ]);
 
-      // Detect zones that just crossed the 0.4 DAI threshold
+      // Detect zones that just crossed the 0.4 DAI threshold (falling edge)
       if (prevZonesRef.current.length > 0) {
-        zonesData.forEach((newZone) => {
+        for (const newZone of zonesData) {
           const prev = prevZonesRef.current.find(
             (z) => z.zone_name === newZone.zone_name
           );
+
           if (prev && prev.dai >= 0.4 && newZone.dai < 0.4) {
+            // DAI just crossed below threshold — show toast immediately
             addToast({
               type: "disruption",
               message: `Disruption triggered in ${newZone.zone_name}`,
               zone: newZone.zone_name,
             });
+
+            // Fire the ML trigger pipeline on the backend.
+            // We don't await this — it runs in the background so it doesn't
+            // block the UI refresh.  Any payout events it creates will appear
+            // on the next polling cycle.
+            evaluateTrigger(
+              1, // zone_id placeholder — trigger router auto-provisions the zone
+              newZone
+            ).then((result) => {
+              if (result.triggered) {
+                addToast({
+                  type: "payout",
+                  message: `Payout triggered for ${newZone.zone_name} — ₹${result.payout_event_id ? "600" : "0"}`,
+                  zone: newZone.zone_name,
+                });
+              }
+            }).catch((err) => {
+              // Non-fatal — just log; the retry will happen on next refresh cycle
+              console.warn(`[useLiveData] Trigger evaluation failed for ${newZone.zone_name}:`, err);
+            });
           }
-        });
+        }
       }
 
       prevZonesRef.current = zonesData;
