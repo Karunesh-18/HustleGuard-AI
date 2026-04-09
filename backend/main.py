@@ -70,6 +70,7 @@ async def lifespan(app: FastAPI):
     # ── Background zone refresh ───────────────────────────────────────────────
     # Refreshes synthetic zone conditions every 5 minutes using the simulation
     # service so premiums quoted at onboarding reflect current time-of-day risk.
+    zone_refresh_enabled = _env_bool("ENABLE_ZONE_REFRESH_LOOP", default=(os.getenv("RENDER") is None))
     zone_refresh_interval = int(os.getenv("ZONE_REFRESH_INTERVAL_SECONDS", "300"))
 
     async def _zone_refresh_loop() -> None:
@@ -92,16 +93,21 @@ async def lifespan(app: FastAPI):
                 )
             await asyncio.sleep(zone_refresh_interval)
 
-    task = asyncio.create_task(_zone_refresh_loop())
-    logger.info(f"✓ Background zone refresh started (interval={zone_refresh_interval}s)")
+    task = None
+    if zone_refresh_enabled:
+        task = asyncio.create_task(_zone_refresh_loop())
+        logger.info(f"✓ Background zone refresh started (interval={zone_refresh_interval}s)")
+    else:
+        logger.info("Skipping background zone refresh loop (ENABLE_ZONE_REFRESH_LOOP disabled)")
 
     yield
 
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
