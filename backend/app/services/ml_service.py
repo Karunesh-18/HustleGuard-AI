@@ -9,6 +9,28 @@ from ml import registry
 logger = logging.getLogger(__name__)
 
 
+def _heuristic_predict(payload: DisruptionPredictionRequest) -> tuple[float, float]:
+    """Low-memory fallback when ML artifacts are unavailable in production.
+
+    This avoids hard downtime on constrained instances (e.g., 512MB) where
+    training or loading heavyweight ML dependencies may fail.
+    """
+    rain_score = min(1.0, payload.rainfall / 120.0)
+    aqi_score = min(1.0, max(0.0, (payload.aqi - 80.0) / 320.0))
+    traffic_score = min(1.0, max(0.0, (45.0 - payload.traffic_speed) / 40.0))
+    dai_stress = min(1.0, max(0.0, (0.65 - payload.current_dai) / 0.65))
+
+    disruption_probability = (
+        0.35 * rain_score
+        + 0.25 * aqi_score
+        + 0.20 * traffic_score
+        + 0.20 * dai_stress
+    )
+    disruption_probability = max(0.0, min(1.0, disruption_probability))
+    predicted_dai = max(0.0, min(1.0, 1.0 - disruption_probability * 0.85))
+    return predicted_dai, disruption_probability
+
+
 def predict_disruption(payload: DisruptionPredictionRequest) -> DisruptionPredictionResponse:
     now = datetime.now(tz=timezone.utc)
 
@@ -51,11 +73,12 @@ def predict_disruption(payload: DisruptionPredictionRequest) -> DisruptionPredic
             detail=f"Missing required model feature: {exc}",
         ) from exc
     except Exception as exc:
-        logger.error(f"ML prediction failed: {exc}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail="ML prediction service unavailable — see server logs.",
-        ) from exc
+        logger.warning(
+            "ML registry unavailable (%s). Falling back to heuristic scorer.",
+            exc,
+            exc_info=True,
+        )
+        predicted_dai, disruption_probability = _heuristic_predict(payload)
 
     risk_label = "normal"
     if disruption_probability >= 0.50:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 
@@ -37,6 +38,17 @@ class ModelRegistry:
                 self._dai_model = joblib.load(DAI_MODEL_FILE)
                 self._disruption_model = joblib.load(DISRUPTION_MODEL_FILE)
                 return
+
+            # Guardrail for low-memory cloud instances (Render free tier, etc.).
+            # Training pipelines can exceed instance memory and cause OOM restarts.
+            allow_training = os.getenv("ALLOW_ML_TRAINING")
+            if allow_training is None:
+                allow_training = "1" if os.getenv("RENDER") is None else "0"
+            if allow_training.strip().lower() not in {"1", "true", "yes", "on"}:
+                raise RuntimeError(
+                    "ML model files not found and ALLOW_ML_TRAINING is disabled. "
+                    "Set ALLOW_ML_TRAINING=1 to allow training, or deploy pre-trained .pkl model files."
+                )
 
             trained: TrainedModels = train_pipeline_models()
             self._dai_model = trained.dai_model

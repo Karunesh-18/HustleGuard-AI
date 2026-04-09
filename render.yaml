@@ -13,3 +13,9 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      - key: ALLOW_ML_TRAINING
+        value: "0"
+      - key: ENABLE_ZONE_REFRESH_LOOP
+        value: "0"
+      - key: PRELOAD_ML_AT_STARTUP
+        value: "0"
