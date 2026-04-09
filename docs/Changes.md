@@ -1,5 +1,15 @@
 # Changes
 
+## 2026-04-09 — Vercel/Render Quote Timeout Resilience
+
+### Frontend API Reliability
+- **`frontend/src/lib/api.ts`**: Reworked client timeout handling to be environment-aware. Default timeout is now `45s` in production (still `12s` in local dev) to tolerate Render cold starts.
+- **`frontend/src/lib/api.ts`**: Added optional env overrides:
+  - `NEXT_PUBLIC_API_TIMEOUT_MS`
+  - `NEXT_PUBLIC_API_QUOTE_TIMEOUT_MS`
+- **`frontend/src/lib/api.ts`**: Added controlled retry support in `apiFetch()` for transient startup/network conditions (`AbortError`, network `TypeError`, and upstream `502/503/504`).
+- **`frontend/src/lib/api.ts`**: `quotePolicy()` now uses a dedicated longer timeout and one retry to reduce false failures during backend wake-up.
+
 ## 2026-04-05 — Code Review Fixes (Security, Bugs, Rate Limiting, Frontend)
 
 ### Security

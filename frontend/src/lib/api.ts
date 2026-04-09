@@ -19,38 +19,82 @@ export const API_BASE = (
   process.env.NEXT_PUBLIC_API_BASE ?? (typeof window !== "undefined" ? `http://${window.location.hostname}:8000` : "http://127.0.0.1:8000")
 ).replace(/\/+$/, "");
 
-const API_TIMEOUT_MS = 12_000;
+function readTimeoutEnv(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+const DEFAULT_API_TIMEOUT_MS = process.env.NODE_ENV === "production" ? 45_000 : 12_000;
+const API_TIMEOUT_MS = readTimeoutEnv(process.env.NEXT_PUBLIC_API_TIMEOUT_MS, DEFAULT_API_TIMEOUT_MS);
+const API_QUOTE_TIMEOUT_MS = readTimeoutEnv(
+  process.env.NEXT_PUBLIC_API_QUOTE_TIMEOUT_MS,
+  Math.max(API_TIMEOUT_MS, 60_000)
+);
 
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}${path}`, {
-      cache: "no-store",
-      ...init,
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") {
-      throw new Error(`Request timed out after ${API_TIMEOUT_MS}ms — ${path}`);
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeout);
-  }
+type ApiFetchOptions = {
+  timeoutMs?: number;
+  retries?: number;
+};
 
-  if (!res.ok) {
-    // Try to parse the backend's JSON error detail for better error messages
-    let detail: string = res.statusText;
+function isRetryableNetworkError(err: unknown): boolean {
+  return err instanceof TypeError || (err instanceof DOMException && err.name === "AbortError");
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function apiFetch<T>(path: string, init?: RequestInit, options?: ApiFetchOptions): Promise<T> {
+  const timeoutMs = options?.timeoutMs ?? API_TIMEOUT_MS;
+  const retries = options?.retries ?? 0;
+  let attempt = 0;
+
+  while (true) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    let res: Response;
     try {
-      const body = await res.json() as { detail?: string };
-      if (body?.detail) detail = body.detail;
-    } catch { /* ignore parse errors */ }
-    throw new Error(`${res.status}: ${detail}`);
+      res = await fetch(`${API_BASE}${path}`, {
+        cache: "no-store",
+        ...init,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (attempt < retries && isRetryableNetworkError(err)) {
+        attempt += 1;
+        await wait(500 * attempt);
+        continue;
+      }
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new Error(`Request timed out after ${timeoutMs}ms — ${path}`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!res.ok) {
+      // Retry once for transient upstream errors during cold starts.
+      if (attempt < retries && [502, 503, 504].includes(res.status)) {
+        attempt += 1;
+        await wait(500 * attempt);
+        continue;
+      }
+
+      // Try to parse the backend's JSON error detail for better error messages
+      let detail: string = res.statusText;
+      try {
+        const body = await res.json() as { detail?: string };
+        if (body?.detail) detail = body.detail;
+      } catch { /* ignore parse errors */ }
+      throw new Error(`${res.status}: ${detail}`);
+    }
+
+    return res.json() as Promise<T>;
   }
-  return res.json() as Promise<T>;
 }
 
 // ─── Health ───────────────────────────────────────────────────────────────────
@@ -195,6 +239,9 @@ export async function quotePolicy(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ zone_name, reliability_score }),
+  }, {
+    timeoutMs: API_QUOTE_TIMEOUT_MS,
+    retries: 1,
   });
 }
 
