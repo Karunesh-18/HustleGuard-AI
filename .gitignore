@@ -54,3 +54,13 @@ backend/ml/datasets/
 backend/ml/confusion_matrix.png
 backend/ml/feature_importance.png
 backend/ml/threshold_curves.png
+
+# Keep local-only docs and backend utility artifacts out of git
+docs/
+backend/hustleguard.db
+backend/db/db.py
+backend/database.py
+backend/models.py
+backend/create_test_riders.py
+backend/seed_zones.py
+backend/migrate_db.py
