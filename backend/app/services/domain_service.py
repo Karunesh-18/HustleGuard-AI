@@ -45,7 +45,7 @@ _DEMO_PAYOUTS: list[dict] = [
 # ─── Zone live data ───────────────────────────────────────────────────────────
 
 def get_zone_live_data(db: Session) -> list[ZoneLiveDataRead]:
-    """Return current zone snapshots. Falls back to synthetic data if table is empty."""
+    """Return current zone snapshots with all real-API enrichment fields."""
     rows = db.query(ZoneSnapshot).order_by(ZoneSnapshot.zone_name.asc()).all()
     if rows:
         return [
@@ -57,40 +57,44 @@ def get_zone_live_data(db: Session) -> list[ZoneLiveDataRead]:
                 dai=row.dai,
                 workability_score=row.workability_score,
                 updated_at=row.updated_at.isoformat(),
+                data_source=getattr(row, "data_source", "simulated") or "simulated",
+                temperature_celsius=getattr(row, "temperature_celsius", None),
+                dominant_pollutant=getattr(row, "dominant_pollutant", None),
+                traffic_speed_kmh=getattr(row, "traffic_speed_kmh", None),
             )
             for row in rows
         ]
-    # Seed demo data into DB so subsequent calls use real data
-    # Use explicit upsert-by-zone_name to avoid duplicate rows on cold start
-    now = datetime.now(tz=timezone.utc)
-    for d in _DEMO_ZONES:
-        existing = db.query(ZoneSnapshot).filter_by(zone_name=d["zone_name"]).first()
-        if existing:
-            existing.rainfall_mm = d["rainfall_mm"]
-            existing.aqi = d["aqi"]
-            existing.traffic_index = d["traffic_index"]
-            existing.dai = d["dai"]
-            existing.workability_score = d["workability_score"]
-            existing.updated_at = now
-        else:
-            snap = ZoneSnapshot(
-                zone_name=d["zone_name"],
-                rainfall_mm=d["rainfall_mm"],
-                aqi=d["aqi"],
-                traffic_index=d["traffic_index"],
-                dai=d["dai"],
-                workability_score=d["workability_score"],
-                updated_at=now,
-            )
-            db.add(snap)
+
+    # No snapshots yet — trigger a real API refresh (first boot / cleared DB).
+    logger.info("ZoneSnapshot table empty — triggering initial zone refresh from real APIs")
     try:
-        db.commit()
-    except Exception:
-        db.rollback()
-    return [
-        ZoneLiveDataRead(**d, updated_at=now.isoformat())
-        for d in _DEMO_ZONES
-    ]
+        from app.services.zone_simulation_service import refresh_all_zones
+        refresh_all_zones(db)
+    except Exception as exc:
+        logger.error(f"Initial zone refresh failed: {exc}")
+
+    rows = db.query(ZoneSnapshot).order_by(ZoneSnapshot.zone_name.asc()).all()
+    if rows:
+        return [
+            ZoneLiveDataRead(
+                zone_name=row.zone_name,
+                rainfall_mm=row.rainfall_mm,
+                aqi=row.aqi,
+                traffic_index=row.traffic_index,
+                dai=row.dai,
+                workability_score=row.workability_score,
+                updated_at=row.updated_at.isoformat(),
+                data_source=getattr(row, "data_source", "simulated") or "simulated",
+                temperature_celsius=getattr(row, "temperature_celsius", None),
+                dominant_pollutant=getattr(row, "dominant_pollutant", None),
+                traffic_speed_kmh=getattr(row, "traffic_speed_kmh", None),
+            )
+            for row in rows
+        ]
+
+    # Absolute last resort — static fallback
+    now = datetime.now(tz=timezone.utc)
+    return [ZoneLiveDataRead(**d, updated_at=now.isoformat()) for d in _DEMO_ZONES]
 
 
 # ─── Recent payout events ─────────────────────────────────────────────────────

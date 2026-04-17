@@ -46,6 +46,7 @@ function ZoneStatusDot({ zone }: { zone: ZoneLiveData }) {
   const bad = zone.dai < 0.4;
   const warn = zone.dai < 0.6;
   const color = bad ? "var(--danger)" : warn ? "var(--warning)" : "var(--accent)";
+  const isReal = zone.data_source === "real";
   return (
     <div style={{
       display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -59,6 +60,13 @@ function ZoneStatusDot({ zone }: { zone: ZoneLiveData }) {
         <span style={{ fontSize: "0.875rem", fontWeight: 500, color: "var(--text-primary)" }}>
           {zone.zone_name}
         </span>
+        {isReal && (
+          <span style={{
+            fontSize: "0.5rem", fontWeight: 700, letterSpacing: "0.06em",
+            color: "var(--accent)", background: "rgba(6,214,160,0.12)",
+            padding: "1px 5px", borderRadius: 3, lineHeight: 1.5,
+          }}>LIVE</span>
+        )}
       </div>
       <div className="row" style={{ gap: 12 }}>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem", color: "var(--text-tertiary)" }}>
@@ -238,7 +246,9 @@ export default function HomePage() {
             {[
               { label: "Rain",    value: `${homeZone.rainfall_mm}mm`, icon: CloudRainIcon },
               { label: "AQI",     value: String(homeZone.aqi),        icon: ActivityIcon },
-              { label: "Traffic", value: String(homeZone.traffic_index), icon: MapPinIcon },
+              { label: homeZone.traffic_speed_kmh ? "Speed" : "Traffic",
+                value: homeZone.traffic_speed_kmh ? `${homeZone.traffic_speed_kmh}km/h` : String(homeZone.traffic_index),
+                icon: MapPinIcon },
             ].map(({ label, value, icon: Icon }) => (
               <div key={label} className="metric-card" style={{ padding: "8px 10px", gap: 3 }}>
                 <div className="row" style={{ gap: 4, marginBottom: 2 }}>
@@ -248,6 +258,40 @@ export default function HomePage() {
                 <div style={{ fontWeight: 700, fontSize: "0.9rem", fontFamily: "var(--font-mono)", color: "var(--text-primary)" }}>{value}</div>
               </div>
             ))}
+          </div>
+
+          {/* Temperature + pollutant row — only shown when real API data is present */}
+          {(homeZone.temperature_celsius != null || homeZone.dominant_pollutant) && (
+            <div className="row" style={{ gap: 12, marginTop: 8, flexWrap: "wrap" }}>
+              {homeZone.temperature_celsius != null && (
+                <span className="body-sm" style={{ color: "var(--text-tertiary)" }}>
+                  🌡️ {homeZone.temperature_celsius.toFixed(1)}°C
+                </span>
+              )}
+              {homeZone.dominant_pollutant && (
+                <span className="body-sm" style={{ color: "var(--text-tertiary)" }}>
+                  💨 {homeZone.dominant_pollutant.toUpperCase()} dominant
+                </span>
+              )}
+              {homeZone.weather_description && (
+                <span className="body-sm" style={{ color: "var(--text-tertiary)", textTransform: "capitalize" }}>
+                  {homeZone.weather_description}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Data source badge */}
+          <div className="row" style={{ gap: 6, marginTop: 4 }}>
+            <span style={{
+              fontSize: "0.5625rem", fontWeight: 700, letterSpacing: "0.06em",
+              color: homeZone.data_source === "real" ? "var(--accent)" : "var(--text-tertiary)",
+              background: homeZone.data_source === "real" ? "rgba(6,214,160,0.1)" : "rgba(255,255,255,0.06)",
+              padding: "2px 7px", borderRadius: 4, border: "1px solid",
+              borderColor: homeZone.data_source === "real" ? "rgba(6,214,160,0.3)" : "var(--border)",
+            }}>
+              {homeZone.data_source === "real" ? "● LIVE DATA" : "◌ SIMULATED"}
+            </span>
           </div>
         </div>
       ) : null}

@@ -6,6 +6,7 @@ import { getRiderPolicy, quotePolicy, getRiderClaims, getRecentPayouts, subscrib
 import type { RiderPolicyRead, PolicyQuoteResponse, ClaimRead, PayoutEventRead, PolicyQuotedPlan } from "@/types";
 import { useRazorpay } from "@/hooks/useRazorpay";
 import PlanSelector from "@/components/PlanSelector";
+import PolicyDocumentModal from "@/components/PolicyDocumentModal";
 import {
   UserIcon, MapPinIcon, ShieldIcon, ZapIcon, ActivityIcon,
   CreditCardIcon, BanknoteIcon, CheckIcon, ChevronRightIcon,
@@ -41,6 +42,7 @@ export default function ProfilePage() {
   const [changingPlan, setChangingPlan] = useState(false);
   const [selectedNewPlan, setSelectedNewPlan] = useState<PolicyQuotedPlan | null>(null);
   const [planChangeResult, setPlanChangeResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [policyDocOpen, setPolicyDocOpen] = useState(false);
   const { loading: payLoading, sdkBlocked, openCheckout } = useRazorpay();
 
   useEffect(() => {
@@ -238,16 +240,26 @@ export default function ProfilePage() {
                 ))}
               </div>
 
-              {/* Change plan button */}
+              {/* Change plan button + View Policy Document */}
               {!changingPlan && (
-                <button
-                  className="btn btn-ghost"
-                  type="button"
-                  onClick={() => { setChangingPlan(true); setPlanChangeResult(null); setSelectedNewPlan(null); }}
-                  style={{ marginTop: 6, fontSize: "0.875rem", padding: "10px 0" }}
-                >
-                  <LayersIcon size={15} color="var(--brand-light)" /> Change Coverage Plan
-                </button>
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  <button
+                    className="btn btn-ghost"
+                    type="button"
+                    onClick={() => { setChangingPlan(true); setPlanChangeResult(null); setSelectedNewPlan(null); }}
+                    style={{ flex: 1, fontSize: "0.875rem", padding: "10px 0" }}
+                  >
+                    <LayersIcon size={15} color="var(--brand-light)" /> Change Plan
+                  </button>
+                  <button
+                    className="btn btn-ghost"
+                    type="button"
+                    onClick={() => setPolicyDocOpen(true)}
+                    style={{ flex: 1, fontSize: "0.875rem", padding: "10px 0" }}
+                  >
+                    📄 Policy Document
+                  </button>
+                </div>
               )}
             </div>
 
@@ -603,6 +615,9 @@ export default function ProfilePage() {
           Sign Out
         </button>
       </div>
+
+      {/* Policy document bottom-sheet modal */}
+      <PolicyDocumentModal open={policyDocOpen} onClose={() => setPolicyDocOpen(false)} />
     </div>
   );
 }

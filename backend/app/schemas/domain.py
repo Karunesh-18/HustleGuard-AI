@@ -110,6 +110,12 @@ class ZoneLiveDataRead(BaseModel):
     dai: float
     workability_score: int
     updated_at: str  # ISO string for JSON serialisation
+    # Phase 3 enrichment — None when no real API keys are present
+    data_source: Optional[str] = "simulated"   # "real" | "simulated"
+    temperature_celsius: Optional[float] = None
+    dominant_pollutant: Optional[str] = None
+    traffic_speed_kmh: Optional[float] = None
+    weather_description: Optional[str] = None
 
 
 # ─── Payout events (matches PayoutEvent in models/domain.py) ─────────────────
@@ -196,6 +202,9 @@ class TriggerEvaluateResponse(BaseModel):
     # Policy context shown when rider_id is provided
     policy_name: str | None = None
     dai_threshold_used: float | None = None
+    # Concurrent disruption — True when multiple zones triggered simultaneously
+    is_concurrent: bool = False
+    concurrent_zone_names: list[str] = []
 
 
 # ─── Policy Tiers ─────────────────────────────────────────────────────────────

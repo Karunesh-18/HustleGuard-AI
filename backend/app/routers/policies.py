@@ -256,3 +256,134 @@ async def quote_policy(
     except Exception as exc:
         logger.error(f"Premium quote failed for zone={payload.zone_name!r}: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Could not generate quote: {exc}") from exc
+
+
+@router.get("/exclusions", tags=["policies"])
+async def get_exclusions() -> dict:
+    """Return the mandatory insurance exclusions for all policy tiers.
+
+    These exclusions are non-negotiable and cannot be waived or appealed.
+    The frontend displays them in the plan picker 'What's Not Covered' section.
+    Reference: IRDAI Master Circular 2023 Section 4 — General Exclusions.
+    """
+    # Defined here (mirrors claim_service.py check_exclusions) so the endpoint
+    # is self-contained and requires no import from the service layer.
+    MANDATORY_EXCLUSIONS = [
+        {"id": "war",               "icon": "⚔️",  "label": "War & Armed Conflict"},
+        {"id": "pandemic",          "icon": "🦠",  "label": "Pandemic / Gov't Lockdown"},
+        {"id": "terrorism",         "icon": "💣",  "label": "Terrorism & Political Violence"},
+        {"id": "nuclear",           "icon": "☢️",  "label": "Nuclear & Radiological Events"},
+        {"id": "curfew_government", "icon": "🚫",  "label": "Govt.-Ordered Curfew (Sec. 144)"},
+    ]
+    return {
+        "policy_scope": "All tiers — HustleGuard Protection",
+        "note": (
+            "HustleGuard covers weather, AQI, and traffic disruptions only. "
+            "The following events are categorically excluded under all policy tiers."
+        ),
+        "exclusions": MANDATORY_EXCLUSIONS,
+        "reference": "IRDAI Master Circular 2023, Section 4",
+    }
+
+
+@router.get("/document", tags=["policies"])
+async def get_policy_document() -> dict:
+    """Return the HustleGuard Protection policy document.
+
+    Machine-readable version of coverage terms, mandatory exclusions, and
+    trigger thresholds. The frontend displays this in the profile T&C section
+    and at the bottom of the onboarding plan selector.
+    """
+    return {
+        "product_name": "HustleGuard Protection",
+        "product_type": "Parametric Micro-Insurance",
+        "issuer": "HustleGuard AI",
+        "regulatory_note": "This is a parametric product tied to objective data triggers, not loss assessment.",
+        "coverage_triggers": {
+            "description": "Payouts are automatic when zone data breaches any of the following thresholds:",
+            "Basic Shield":    { "dai_below": 0.35, "rainfall_above_mm": 90, "aqi_above": 450 },
+            "Standard Guard":  { "dai_below": 0.40, "rainfall_above_mm": 80, "aqi_above": 350 },
+            "Premium Armor":   { "dai_below": 0.50, "rainfall_above_mm": 65, "aqi_above": 250 },
+        },
+        "covered_events": [
+            "Heavy rainfall / flooding causing delivery stoppage",
+            "Hazardous AQI levels (PM2.5 / ozone)",
+            "Severe traffic gridlock (traffic speed < 10 km/h)",
+            "Combined adverse conditions measured by zone Delivery Activity Index (DAI)",
+        ],
+        "mandatory_exclusions": {
+            "description": (
+                "The following events are categorically excluded from coverage under all policy tiers. "
+                "These exclusions cannot be waived, overridden, or appealed. "
+                "Reference: IRDAI Master Circular 2023, Section 4 — General Exclusions."
+            ),
+            "exclusions": [
+                {
+                    "id": "war",
+                    "label": "War & Armed Conflict",
+                    "detail": (
+                        "Any loss arising from war, invasion, acts of foreign enemies, hostilities "
+                        "(whether war be declared or not), civil war, mutiny, or military uprising."
+                    ),
+                },
+                {
+                    "id": "pandemic",
+                    "label": "Pandemic & National Health Emergency",
+                    "detail": (
+                        "Any loss during a period of government-declared pandemic, epidemic, or "
+                        "national public health emergency including government-mandated lockdowns. "
+                        "Note: weather disruptions occurring concurrently with (but independent of) "
+                        "a pandemic ARE covered if they meet parametric thresholds."
+                    ),
+                },
+                {
+                    "id": "terrorism",
+                    "label": "Terrorism & Political Violence",
+                    "detail": (
+                        "Any loss directly caused by or arising from an act of terrorism, sabotage, "
+                        "political violence, or civil commotion motivated by political, religious, or "
+                        "ideological beliefs."
+                    ),
+                },
+                {
+                    "id": "nuclear",
+                    "label": "Nuclear, Chemical & Radiological Incidents",
+                    "detail": (
+                        "Any loss caused by nuclear reaction, radiation, radioactive contamination, "
+                        "chemical or biological weapons, or any allied or associated event."
+                    ),
+                },
+                {
+                    "id": "curfew_government",
+                    "label": "Government-Imposed Curfew (Section 144 / Police Order)",
+                    "detail": (
+                        "Losses arising solely from a government-ordered curfew or Section 144 order "
+                        "are excluded. Traffic / delivery curfews caused by weather events (flooding, "
+                        "cyclones) ARE covered if parametric thresholds are independently met."
+                    ),
+                },
+            ],
+        },
+        "payout_process": {
+            "parametric_auto": "Automatic — no rider action required. Triggered by zone data breach.",
+            "manual_distress": "Rider-initiated via panic button. Fraud-scored within 47–300 seconds.",
+            "partial_disruption": "Prorated payout for grey-zone DAI (0.40–0.55). Standard Guard+ only.",
+            "community": "5+ riders signal distress in 10 minutes triggers community payout.",
+            "appeal": "Rejected claims can be appealed within 24–72 hours depending on tier.",
+        },
+        "waiting_period": {
+            "Basic Shield": "7 days from enrollment",
+            "Standard Guard": "3 days from enrollment",
+            "Premium Armor": "No waiting period",
+            "emergency_override": "Waiting period waived during active zone disruption (DAI < 0.50 or rainfall > 60mm)",
+        },
+        "data_sources": [
+            "OpenWeatherMap — real-time rainfall and temperature",
+            "WeatherAPI — backup weather source",
+            "AQICN / WAQI — real-time AQI by coordinates",
+            "Google Maps — live traffic speed estimation",
+            "HustleGuard ML Model — Delivery Activity Index (DAI) prediction",
+        ],
+        "version": "2.1.0",
+        "effective_date": "2026-04-01",
+    }

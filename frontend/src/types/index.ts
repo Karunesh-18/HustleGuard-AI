@@ -15,6 +15,12 @@ export type ZoneLiveData = {
   dai: number;
   workability_score: number;
   updated_at: string;
+  // Phase 3 enrichment — present when real API keys are configured
+  data_source?: "real" | "simulated" | null;
+  temperature_celsius?: number | null;
+  dominant_pollutant?: string | null;
+  traffic_speed_kmh?: number | null;
+  weather_description?: string | null;
 };
 
 export type PayoutEventRead = {

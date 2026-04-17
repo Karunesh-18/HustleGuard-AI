@@ -1,10 +1,32 @@
-fastapi
-uvicorn[standard]
-sqlalchemy
-psycopg2-binary
-pydantic
-python-dotenv
-pandas
-scikit-learn
-asyncpg
-razorpay
+# HustleGuard AI — Backend Dependencies
+# Versions pinned to last known working set (2026-04-17).
+# Run: pip install -r requirements.txt
+#
+# To upgrade: change the version pin, run pip install -r requirements.txt,
+# run tests, then commit the new pin.
+
+# ── Web Framework ──────────────────────────────────────────────────────────────
+fastapi==0.115.9
+uvicorn[standard]==0.34.0
+
+# ── Database ───────────────────────────────────────────────────────────────────
+sqlalchemy==2.0.40
+psycopg2-binary==2.9.10          # sync Postgres adapter (used for ORM sessions)
+asyncpg==0.30.0                  # async Postgres adapter (used by SQLAlchemy async engine)
+
+# ── Validation ─────────────────────────────────────────────────────────────────
+pydantic==2.11.3
+python-dotenv==1.1.0
+
+# ── ML / Data ──────────────────────────────────────────────────────────────────
+scikit-learn==1.6.1
+pandas==2.2.3
+numpy==2.2.4
+
+# ── Payments ───────────────────────────────────────────────────────────────────
+razorpay==1.4.2
+
+# ── HTTP (external API adapters) ───────────────────────────────────────────────
+# requests is sync — used in background zone refresh (runs in thread pool via asyncio executor)
+requests==2.32.3
+aiohttp==3.11.16                 # async HTTP — for future migration of adapters to full async

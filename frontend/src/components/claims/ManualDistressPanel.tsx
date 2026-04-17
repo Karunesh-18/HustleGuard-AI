@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { submitManualDistressClaim } from "@/lib/api";
+import { useState, useEffect } from "react";
+import { submitManualDistressClaim, getZones } from "@/lib/api";
 import type { ZoneLiveData } from "@/types";
 
 type Reason = "Rain" | "Traffic" | "Curfew" | "Other";
@@ -24,11 +24,28 @@ export function ManualDistressPanel({
 }) {
   const [selected, setSelected] = useState<Reason | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [resolvedZoneId, setResolvedZoneId] = useState<number>(1);
   const [result, setResult] = useState<{
     decision: string;
     eta: number;
     trust: number;
   } | null>(null);
+
+  // Resolve zone_id from the zones API using the zone name from live data.
+  // Falls back to 1 if the zones list is unavailable so the claim still submits.
+  useEffect(() => {
+    if (!zone?.zone_name) return;
+    getZones()
+      .then((zones) => {
+        const match = zones.find(
+          (z) => z.name.toLowerCase() === zone.zone_name.toLowerCase()
+        );
+        if (match?.id) setResolvedZoneId(match.id);
+      })
+      .catch(() => {
+        // Non-fatal — keep the fallback id=1
+      });
+  }, [zone?.zone_name]);
 
   const handleSubmit = async () => {
     if (!selected || !zone || submitting) return;
@@ -36,7 +53,7 @@ export function ManualDistressPanel({
     try {
       const res = await submitManualDistressClaim({
         rider_id: riderId,
-        zone_id: 1, // resolved from zone in production
+        zone_id: resolvedZoneId,
         reason: selected,
         zone_dai: zone.dai,
         rainfall: zone.rainfall_mm,

@@ -4,6 +4,11 @@ Evaluates real-time zone conditions through the ML model.
 When disruption_probability >= 0.4 (optimal threshold from threshold analysis),
 a Disruption record is created and a PayoutEvent is persisted — implementing the
 documented flow: Disruption detected → Payout triggered.
+
+Phase 3 addition: concurrent disruption detection.
+If other zones also have DAI < 0.5 at trigger time, the event is flagged as
+concurrent — indicating a city-wide condition (heavy storm, AQI emergency)
+vs an isolated hyper-local event.
 """
 
 import logging
@@ -13,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.disruption import Disruption
+from app.models.domain import ZoneSnapshot
 from app.models.zone import Zone
 from app.schemas import DisruptionPredictionRequest, TriggerEvaluateRequest, TriggerEvaluateResponse
 from app.services.domain_service import record_payout_event
@@ -29,6 +35,31 @@ DISRUPTION_THRESHOLD = 0.40
 DEFAULT_ELIGIBLE_RIDERS = 85
 # Default payout per event (INR)
 DEFAULT_PAYOUT_INR = 600.0
+# DAI below this in other zones = they are also disrupted (concurrent check)
+_CONCURRENT_DAI_THRESHOLD = 0.50
+
+
+def _detect_concurrent_zones(db: Session, triggering_zone_id: int) -> list[str]:
+    """Return zone names that are currently disrupted (DAI < 0.5), excluding the trigger zone.
+
+    Queries ZoneSnapshot for any zone with DAI below the concurrent threshold.
+    These zones are simultaneously under stress — flagging helps classify the
+    event as city-wide vs isolated.
+    """
+    # Get the name of the triggering zone (to exclude it from the concurrent list)
+    trigger_zone = db.query(Zone).filter(Zone.id == triggering_zone_id).first()
+    trigger_name = trigger_zone.name if trigger_zone else ""
+
+    disrupted_snaps = (
+        db.query(ZoneSnapshot)
+        .filter(ZoneSnapshot.dai < _CONCURRENT_DAI_THRESHOLD)
+        .all()
+    )
+    return [
+        snap.zone_name
+        for snap in disrupted_snaps
+        if snap.zone_name != trigger_name
+    ]
 
 
 @router.post("/evaluate", response_model=TriggerEvaluateResponse)
@@ -40,14 +71,12 @@ async def evaluate_parametric_trigger(
     """Evaluate trigger conditions and auto-fire a payout if disruption threshold is met.
 
     Flow: payload → ML predict-disruption → if prob >= 0.4 → create Disruption record
-          → record PayoutEvent → return.
+          → detect concurrent zones → record PayoutEvent → return.
     """
     if not getattr(request.app.state, "database_ready", False):
         raise HTTPException(status_code=503, detail="Database is unavailable.")
 
     # ── Policy-aware threshold selection ────────────────────────────────────
-    # If rider_id is provided, use their policy tier's thresholds.
-    # Riders on Premium Armor fire earlier (DAI < 0.50), Basic Shield only at DAI < 0.35.
     policy_thresholds = None
     policy_name = None
     if payload.rider_id:
@@ -78,6 +107,8 @@ async def evaluate_parametric_trigger(
     triggered = ml_triggered or threshold_triggered
     payout_event_id: int | None = None
     trigger_reason: str | None = None
+    concurrent_zone_names: list[str] = []
+    is_concurrent = False
 
     if triggered:
         # Build a human-readable trigger reason
@@ -93,12 +124,10 @@ async def evaluate_parametric_trigger(
         trigger_reason = " · ".join(reasons) if reasons else f"Disruption probability {prediction.disruption_probability:.0%}"
 
         try:
-            # ── Step 1: Create a Disruption record (zone-linked) ──────────────
-            # Look up or create the Zone row for FK linkage.
+            # ── Step 1: Resolve zone ──────────────────────────────────────────
             zone_name = f"Zone-{payload.zone_id}"
             zone = db.query(Zone).filter(Zone.name == zone_name).first()
             if zone is None:
-                # Auto-provision a minimal zone entry so the FK constraint is satisfied.
                 zone = Zone(
                     name=zone_name,
                     city="Unknown",
@@ -108,8 +137,20 @@ async def evaluate_parametric_trigger(
                     risk_level="high",
                 )
                 db.add(zone)
-                db.flush()  # get zone.id without committing yet
+                db.flush()
 
+            # ── Step 2: Detect concurrent disruptions ────────────────────────
+            # Check which other zones are also under stress right now.
+            concurrent_zone_names = _detect_concurrent_zones(db, zone.id)
+            is_concurrent = len(concurrent_zone_names) > 0
+
+            if is_concurrent:
+                logger.info(
+                    "Concurrent disruption detected | trigger_zone=%s concurrent=%s",
+                    zone_name, concurrent_zone_names,
+                )
+
+            # ── Step 3: Create Disruption record ─────────────────────────────
             disruption = Disruption(
                 zone_id=zone.id,
                 event_type="parametric_trigger",
@@ -118,11 +159,13 @@ async def evaluate_parametric_trigger(
                 aqi=payload.aqi,
                 average_traffic_speed=payload.traffic_speed,
                 zone_dai=payload.current_dai,
+                is_concurrent=is_concurrent,
+                concurrent_zones=",".join(concurrent_zone_names) if concurrent_zone_names else None,
             )
             db.add(disruption)
-            db.flush()  # get disruption.id before payout record
+            db.flush()
 
-            # ── Step 2: Record PayoutEvent (linked to the disruption zone) ───
+            # ── Step 4: Record PayoutEvent ───────────────────────────────────
             event = record_payout_event(
                 db=db,
                 zone_name=zone_name,
@@ -132,17 +175,22 @@ async def evaluate_parametric_trigger(
             )
             payout_event_id = event.id
             logger.info(
-                f"Parametric trigger FIRED | zone_id={payload.zone_id} zone_name={zone_name!r} "
-                f"disruption_id={disruption.id} prob={prediction.disruption_probability:.3f} "
-                f"payout_event={payout_event_id}"
+                "Parametric trigger FIRED | zone_id=%s zone_name=%r "
+                "disruption_id=%s prob=%.3f payout_event=%s concurrent=%s",
+                payload.zone_id, zone_name, disruption.id,
+                prediction.disruption_probability, payout_event_id,
+                concurrent_zone_names or "none",
             )
         except Exception as exc:
-            logger.error(f"Failed to record disruption/payout event: {exc}")
-            raise HTTPException(status_code=500, detail="Trigger fired but disruption/payout could not be recorded.") from exc
+            logger.error("Failed to record disruption/payout event: %s", exc)
+            raise HTTPException(
+                status_code=500,
+                detail="Trigger fired but disruption/payout could not be recorded.",
+            ) from exc
     else:
         logger.info(
-            f"Parametric trigger evaluated | zone_id={payload.zone_id} "
-            f"prob={prediction.disruption_probability:.3f} — below threshold, no trigger"
+            "Parametric trigger evaluated | zone_id=%s prob=%.3f — below threshold, no trigger",
+            payload.zone_id, prediction.disruption_probability,
         )
 
     return TriggerEvaluateResponse(
@@ -154,4 +202,6 @@ async def evaluate_parametric_trigger(
         payout_event_id=payout_event_id,
         policy_name=policy_name,
         dai_threshold_used=round(dai_threshold, 2),
+        is_concurrent=is_concurrent,
+        concurrent_zone_names=concurrent_zone_names,
     )

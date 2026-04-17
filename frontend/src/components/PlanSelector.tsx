@@ -6,9 +6,11 @@
  *   - Your zone's current ML-adjusted price (highlighted)
  *   - Feature comparison per tier
  *   - Recommended badge on Standard Guard
+ *   - Collapsible "What's Not Covered" exclusions section (IRDAI mandatory)
  */
 "use client";
 
+import { useState } from "react";
 import type { PolicyQuotedPlan, PolicyQuoteResponse } from "@/types";
 
 const TIER_META: Record<string, {
@@ -58,6 +60,15 @@ const TIER_META: Record<string, {
   },
 };
 
+// Mandatory exclusions — identical across all tiers per IRDAI Master Circular 2023 §4
+const EXCLUSIONS = [
+  { icon: "⚔️", label: "War & Armed Conflict" },
+  { icon: "🦠", label: "Pandemic / Gov't Lockdown" },
+  { icon: "💣", label: "Terrorism & Political Violence" },
+  { icon: "☢️", label: "Nuclear & Radiological Events" },
+  { icon: "🚫", label: "Govt.-Ordered Curfew (Sec. 144)" },
+];
+
 function CheckIcon({ color = "currentColor" }: { color?: string }) {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -88,18 +99,16 @@ type Props = {
   currentPolicyName?: string;
   selectedPlan: string | null;
   onSelect: (plan: PolicyQuotedPlan) => void;
-  /** True = highlight selected plan distinctly (choosing mode). False = just display. */
   interactive?: boolean;
 };
 
 export default function PlanSelector({ quote, currentPolicyName, selectedPlan, onSelect, interactive = true }: Props) {
+  const [exclusionsOpenFor, setExclusionsOpenFor] = useState<string | null>(null);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
       {/* Zone context header */}
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        marginBottom: 14,
-      }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: "0.9375rem" }}>{quote.zone_name}</div>
           <div style={{ fontSize: "0.8125rem", color: "var(--text-tertiary)", marginTop: 1 }}>
@@ -117,11 +126,9 @@ export default function PlanSelector({ quote, currentPolicyName, selectedPlan, o
           const isCurrent = plan.policy_name === currentPolicyName;
           const isSelected = plan.policy_name === selectedPlan;
           const isActive = isSelected || (!selectedPlan && isCurrent);
-
-          // Price range: base price at 1.0× → max at 1.45× multiplier
+          const exclusionsOpen = exclusionsOpenFor === plan.policy_name;
           const priceMin = Math.round(plan.base_premium_inr);
           const priceMax = Math.round(plan.base_premium_inr * 1.45);
-
           const borderColor = isActive
             ? (plan.policy_name === "Premium Armor" ? "var(--accent)" : "var(--brand)")
             : "var(--border)";
@@ -145,23 +152,12 @@ export default function PlanSelector({ quote, currentPolicyName, selectedPlan, o
             >
               {/* Recommended / Current badge */}
               {(isRecommended || isCurrent) && (
-                <div style={{
-                  position: "absolute", top: 10, right: 10,
-                  display: "flex", gap: 4,
-                }}>
+                <div style={{ position: "absolute", top: 10, right: 10, display: "flex", gap: 4 }}>
                   {isCurrent && (
-                    <div style={{
-                      fontSize: "0.5625rem", fontWeight: 800, letterSpacing: "0.06em",
-                      padding: "2px 7px", borderRadius: 99,
-                      background: "var(--accent)", color: "#000",
-                    }}>CURRENT</div>
+                    <div style={{ fontSize: "0.5625rem", fontWeight: 800, letterSpacing: "0.06em", padding: "2px 7px", borderRadius: 99, background: "var(--accent)", color: "#000" }}>CURRENT</div>
                   )}
                   {isRecommended && !isCurrent && (
-                    <div style={{
-                      fontSize: "0.5625rem", fontWeight: 800, letterSpacing: "0.06em",
-                      padding: "2px 7px", borderRadius: 99,
-                      background: "var(--brand)", color: "white",
-                    }}>POPULAR</div>
+                    <div style={{ fontSize: "0.5625rem", fontWeight: 800, letterSpacing: "0.06em", padding: "2px 7px", borderRadius: 99, background: "var(--brand)", color: "white" }}>POPULAR</div>
                   )}
                 </div>
               )}
@@ -170,35 +166,19 @@ export default function PlanSelector({ quote, currentPolicyName, selectedPlan, o
               <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 10 }}>
                 <div style={{ fontSize: 26, lineHeight: 1, flexShrink: 0, marginTop: 1 }}>{meta.emoji}</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: "1rem", color: isActive ? meta.color : "var(--text-primary)" }}>
-                    {plan.policy_name}
-                  </div>
-                  <div style={{ fontSize: "0.78125rem", color: "var(--text-tertiary)", marginTop: 1 }}>
-                    {meta.tagline}
-                  </div>
+                  <div style={{ fontWeight: 700, fontSize: "1rem", color: isActive ? meta.color : "var(--text-primary)" }}>{plan.policy_name}</div>
+                  <div style={{ fontSize: "0.78125rem", color: "var(--text-tertiary)", marginTop: 1 }}>{meta.tagline}</div>
                 </div>
-                {/* Pricing block */}
                 <div style={{ textAlign: "right", flexShrink: 0 }}>
-                  <div style={{ fontWeight: 800, fontSize: "1.25rem", color: meta.color, fontFamily: "var(--font-display)", lineHeight: 1 }}>
-                    ₹{plan.quoted_premium_inr}
-                  </div>
-                  <div style={{ fontSize: "0.6875rem", color: "var(--text-tertiary)", marginTop: 2 }}>
-                    /week
-                  </div>
-                  <div style={{ fontSize: "0.625rem", color: "var(--text-tertiary)", marginTop: 3 }}>
-                    ₹{priceMin}–{priceMax} range
-                  </div>
+                  <div style={{ fontWeight: 800, fontSize: "1.25rem", color: meta.color, fontFamily: "var(--font-display)", lineHeight: 1 }}>₹{plan.quoted_premium_inr}</div>
+                  <div style={{ fontSize: "0.6875rem", color: "var(--text-tertiary)", marginTop: 2 }}>/week</div>
+                  <div style={{ fontSize: "0.625rem", color: "var(--text-tertiary)", marginTop: 3 }}>₹{priceMin}–{priceMax} range</div>
                 </div>
               </div>
 
-              {/* Risk multiplier callout when non-1× */}
+              {/* Risk surcharge callout */}
               {quote.risk_multiplier > 1.0 && (
-                <div style={{
-                  fontSize: "0.6875rem", color: "var(--text-tertiary)",
-                  marginBottom: 8, padding: "3px 8px",
-                  background: "rgba(239,68,68,0.06)", borderRadius: 6,
-                  borderLeft: "2px solid rgba(239,68,68,0.3)",
-                }}>
+                <div style={{ fontSize: "0.6875rem", color: "var(--text-tertiary)", marginBottom: 8, padding: "3px 8px", background: "rgba(239,68,68,0.06)", borderRadius: 6, borderLeft: "2px solid rgba(239,68,68,0.3)" }}>
                   Zone risk surcharge {quote.risk_multiplier.toFixed(2)}× applied to base ₹{priceMin}
                 </div>
               )}
@@ -217,6 +197,41 @@ export default function PlanSelector({ quote, currentPolicyName, selectedPlan, o
               {plan.waiting_period_days > 0 && (
                 <div style={{ marginTop: 8, fontSize: "0.6875rem", color: "var(--text-tertiary)" }}>
                   ⏱ {plan.waiting_period_days}-day waiting period after enrollment
+                </div>
+              )}
+
+              {/* ── What's NOT Covered (collapsible exclusions) ── */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExclusionsOpenFor(exclusionsOpen ? null : plan.policy_name);
+                }}
+                style={{
+                  marginTop: 12, width: "100%", background: "none", border: "none", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "6px 0", borderTop: "1px solid var(--border)",
+                  color: "var(--text-tertiary)", fontSize: "0.75rem", fontWeight: 600,
+                }}
+              >
+                <span>⚠️ What&apos;s NOT covered</span>
+                <span style={{ fontSize: "0.625rem", transition: "transform 0.2s", display: "inline-block", transform: exclusionsOpen ? "rotate(180deg)" : "rotate(0deg)" }}>▼</span>
+              </button>
+
+              {exclusionsOpen && (
+                <div style={{ marginTop: 6, padding: "10px 12px", background: "rgba(239,68,68,0.05)", borderRadius: "var(--radius-md)", border: "1px solid rgba(239,68,68,0.15)" }}>
+                  <div style={{ fontSize: "0.6875rem", color: "var(--text-tertiary)", marginBottom: 8, lineHeight: 1.5 }}>
+                    Mandatory exclusions under all HustleGuard plans — IRDAI Master Circular 2023 §4:
+                  </div>
+                  {EXCLUSIONS.map((ex) => (
+                    <div key={ex.label} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
+                      <span style={{ fontSize: 14, flexShrink: 0 }}>{ex.icon}</span>
+                      <span style={{ fontSize: "0.8125rem", color: "var(--text-secondary)" }}>{ex.label}</span>
+                    </div>
+                  ))}
+                  <div style={{ marginTop: 8, fontSize: "0.625rem", color: "var(--text-tertiary)", fontStyle: "italic" }}>
+                    These exclusions cannot be waived or appealed under any tier.
+                  </div>
                 </div>
               )}
             </div>

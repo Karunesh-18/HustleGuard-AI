@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { onboardRider, subscribeRiderToPolicy, signinRider, quotePolicy, getZones, getZoneLiveData } from "@/lib/api";
 import { useRazorpay } from "@/hooks/useRazorpay";
 import PlanSelector from "@/components/PlanSelector";
+import GPSGate from "@/components/GPSGate";
 import type { PolicyQuoteResponse, PolicyQuotedPlan, RiderOnboardRead, ZoneRead, ZoneLiveData } from "@/types";
 
 // Static fallback in case the API is unreachable during onboarding
@@ -47,7 +48,8 @@ function riskBadge(zoneName: string, liveData: ZoneLiveData[]): { label: string;
   return { label: "Safe", color: "var(--success)" };
 }
 
-export default function OnboardPage() {
+// GPS is mandatory — wrap the wizard so location is captured at account creation.
+function OnboardPageInner() {
   const router = useRouter();
   const { openCheckout, loading: payLoading, sdkBlocked } = useRazorpay();
 
@@ -134,7 +136,6 @@ export default function OnboardPage() {
     setError(null);
 
     if (sdkBlocked) {
-      // Fallback for ad-blocker: skip payment, subscribe directly with waiting period waived
       setLoading(true);
       try {
         await subscribeRiderToPolicy(pendingRider.id, selectedPlan.policy_name, true);
@@ -153,6 +154,7 @@ export default function OnboardPage() {
       amount_inr: selectedPlan.quoted_premium_inr,
       rider_id: pendingRider.id,
       purpose: "premium",
+      policy_name: selectedPlan.policy_name,
       name: pendingRider.name,
       description: `${selectedPlan.policy_name} — weekly premium (${quote?.zone_name})`,
     });
@@ -171,6 +173,25 @@ export default function OnboardPage() {
       setTimeout(() => router.push("/home"), 1800);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Activation failed. Contact support.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Demo bypass: skip payment entirely (for test/demo environments) ────────
+  // Razorpay test mode does not allow real UPI or card payments.
+  // This path subscribes the rider directly with the waiting period waived.
+  const handleDemoActivate = async () => {
+    if (!pendingRider || !selectedPlan) return;
+    setError(null);
+    setLoading(true);
+    try {
+      await subscribeRiderToPolicy(pendingRider.id, selectedPlan.policy_name, true);
+      localStorage.setItem("hg_rider", JSON.stringify(pendingRider));
+      setStep(4);
+      setTimeout(() => router.push("/home"), 1500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Activation failed.");
     } finally {
       setLoading(false);
     }
@@ -426,14 +447,37 @@ export default function OnboardPage() {
               )}
             </div>
 
+            {/* ── Test mode info banner ─────────────────────────────────── */}
+            <div style={{
+              background: "rgba(99,102,241,0.08)",
+              border: "1px solid rgba(99,102,241,0.25)",
+              borderRadius: "var(--radius-md)",
+              padding: "10px 12px",
+              marginTop: 4,
+              fontSize: "0.8rem",
+              color: "var(--brand-light)",
+              lineHeight: 1.5,
+            }}>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>🧪 Test Mode — Razorpay</div>
+              <div style={{ color: "var(--text-secondary)" }}>
+                UPI &amp; real cards don&apos;t work in test mode. Use test card:
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-primary)", margin: "0 4px" }}>4111 1111 1111 1111</span>
+                · CVV: <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-primary)" }}>111</span>
+                · Expiry: any future date. Or use
+                <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-primary)", margin: "0 4px" }}>success@razorpay</span>
+                for test UPI.
+              </div>
+            </div>
+
             {sdkBlocked && (
-              <div style={{ fontSize: "0.75rem", color: "var(--warning)", background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: "var(--radius-md)", padding: "7px 10px", marginTop: 4 }}>
-                ⚠️ Razorpay blocked by ad-blocker — payment will be skipped and plan activated directly.
+              <div className="warning-banner" style={{ marginTop: 4 }}>
+                ⚠️ Razorpay blocked by ad-blocker — use the demo activate button below.
               </div>
             )}
 
             {error && <div className="form-error" style={{ textAlign: "center" }}>{error}</div>}
 
+            {/* Primary: open Razorpay */}
             <button
               className="btn btn-primary"
               type="button"
@@ -446,6 +490,17 @@ export default function OnboardPage() {
                 : selectedPlan
                   ? <>Pay ₹{selectedPlan.quoted_premium_inr} · Activate {selectedPlan.policy_name}</>
                   : "Select a plan to continue"}
+            </button>
+
+            {/* Secondary: demo bypass — skip Razorpay entirely */}
+            <button
+              className="btn btn-ghost"
+              type="button"
+              disabled={!selectedPlan || loading || quoteLoading}
+              onClick={handleDemoActivate}
+              style={{ marginTop: 6, fontSize: "0.8125rem" }}
+            >
+              ⚡ Demo — Activate without payment
             </button>
           </>
         )}
@@ -468,5 +523,13 @@ export default function OnboardPage() {
 
       </div>
     </div>
+  );
+}
+
+export default function OnboardPage() {
+  return (
+    <GPSGate context="app_open">
+      <OnboardPageInner />
+    </GPSGate>
   );
 }

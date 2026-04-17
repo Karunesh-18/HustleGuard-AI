@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { getRecommendation, subscribeRiderToPolicy } from "@/lib/api";
 import { useRazorpay } from "@/hooks/useRazorpay";
 import type { PolicyRecommendation } from "@/types";
+import GPSGate from "@/components/GPSGate";
 import {
   ShieldIcon, ZapIcon, CheckIcon, AlertIcon, ActivityIcon,
   CloudRainIcon, InfoIcon, ChevronRightIcon, ClockIcon, LayersIcon,
@@ -66,7 +67,8 @@ function PlanFeatureRow({ yes, label }: { yes: boolean; label: string }) {
   );
 }
 
-export default function ApplyPage() {
+// GPS is mandatory — the gate blocks until the browser grants location.
+function ApplyPageInner() {
   const router = useRouter();
   const [rider, setRider] = useState<Rider | null>(null);
   const [rec, setRec] = useState<PolicyRecommendation | null>(null);
@@ -98,6 +100,7 @@ export default function ApplyPage() {
       amount_inr: plan.quoted_premium_inr,
       rider_id: rider.id,
       purpose: "premium",
+      policy_name: plan.policy_name,
       name: rider.name ?? "",
       description: `${plan.policy_name} — first week premium`,
     });
@@ -105,15 +108,27 @@ export default function ApplyPage() {
       setError(result.error);
       return;
     }
-    // Payment verified — now subscribe in DB
+    if (!(result as { policy_activated?: boolean }).policy_activated) {
+      try {
+        await subscribeRiderToPolicy(rider.id, plan.policy_name);
+      } catch { /* backend already subscribed — ignore duplicate */ }
+    }
+    setPaymentId(result.payment_id);
+    setStep("success");
+  }, [rider, rec, openCheckout]);
+
+  // Demo bypass: skip Razorpay for test/demo environments
+  const handleDemoEnroll = useCallback(async () => {
+    if (!rider?.id || !rec) return;
+    const plan = rec.recommended_plan;
     try {
-      await subscribeRiderToPolicy(rider.id, plan.policy_name);
-      setPaymentId(result.payment_id);
+      await subscribeRiderToPolicy(rider.id, plan.policy_name, true);
+      setPaymentId("demo-bypass");
       setStep("success");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Subscription failed after payment — contact support.");
+      setError(e instanceof Error ? e.message : "Activation failed.");
     }
-  }, [rider, rec, openCheckout]);
+  }, [rider, rec]);
 
   const plan = rec?.recommended_plan;
   const riskColor = rec?.risk_label === "high" ? "var(--danger)" : rec?.risk_label === "moderate" ? "var(--warning)" : "var(--accent)";
@@ -250,6 +265,38 @@ export default function ApplyPage() {
             ? <><span className="spinner" style={{ borderTopColor: "white" }} /> Opening Razorpay…</>
             : <><ZapIcon size={16} color="white" /> Confirm &amp; Pay ₹{plan.quoted_premium_inr}</>}
         </button>
+
+        {/* Test mode info — Razorpay test credentials */}
+        <div style={{
+          background: "rgba(99,102,241,0.07)",
+          border: "1px solid rgba(99,102,241,0.22)",
+          borderRadius: "var(--radius-md)",
+          padding: "9px 12px",
+          fontSize: "0.775rem",
+          color: "var(--brand-light)",
+          lineHeight: 1.55,
+        }}>
+          <div style={{ fontWeight: 700, marginBottom: 3 }}>🧪 Test Mode</div>
+          <div style={{ color: "var(--text-secondary)" }}>
+            UPI &amp; real cards won&apos;t work. Test card:
+            <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-primary)", margin: "0 4px" }}>4111 1111 1111 1111</span>
+            CVV: <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-primary)" }}>111</span>,
+            any future expiry. Test UPI:
+            <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-primary)", marginLeft: 4 }}>success@razorpay</span>
+          </div>
+        </div>
+
+        {/* Demo bypass button */}
+        <button
+          className="btn btn-ghost"
+          disabled={!tcAccepted || payLoading}
+          onClick={handleDemoEnroll}
+          type="button"
+          style={{ fontSize: "0.8125rem" }}
+        >
+          ⚡ Demo — Activate without payment
+        </button>
+
         {error && <div className="form-error" style={{ textAlign: "center" }}>{error}</div>}
         <button className="btn btn-ghost" onClick={() => setStep("review")} type="button">Back</button>
       </div>
@@ -378,5 +425,20 @@ export default function ApplyPage() {
         Cancel
       </button>
     </div>
+  );
+}
+
+export default function ApplyPage() {
+  // Parse rider from session so we can pass the ID to GPSGate for logging
+  let riderId: number | undefined;
+  try {
+    const raw = typeof window !== "undefined" ? localStorage.getItem("hg_rider") : null;
+    if (raw) riderId = (JSON.parse(raw) as { id?: number }).id;
+  } catch { /* ignore */ }
+
+  return (
+    <GPSGate riderId={riderId} context="app_open">
+      <ApplyPageInner />
+    </GPSGate>
   );
 }

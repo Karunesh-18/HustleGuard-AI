@@ -46,6 +46,7 @@ from app.schemas import (
     PayoutRead,
 )
 from app.services.fraud_service import evaluate_fraud_risk
+from app.services.mobility_service import get_teleport_risk, get_zone_visit_count, resolve_zone_from_coords
 from app.services.policy_service import (
     check_policy_allows_claim_type,
     get_rider_active_policy,
@@ -78,10 +79,121 @@ def _community_trust_for_count(rider_count: int) -> tuple[float, str]:
     return 75.0, "provisional_payout_with_review"
 
 
-# ── Helper: Build FraudEvaluationRequest from common distress/partial fields ──
+# ── Mandatory insurance exclusions (IRDAI/standard parametric requirements) ───
+# These exclusions are non-negotiable and cannot be waived by any policy tier.
+# They cover events where the risk is uninsurable at the micro-premium price point
+# or where system-wide collapse makes individual parametric triggers meaningless.
+# Ref: IRDAI Master Circular 2023, Section 4 — General Exclusions.
 
-def _build_fraud_request(rider_id: int, zone_id: int, payload) -> FraudEvaluationRequest:
-    """Convert a distress/partial claim payload into a FraudEvaluationRequest."""
+_EXCLUDED_REASONS: dict[str, str] = {
+    "war":       "War, armed conflict, or military invasion",
+    "pandemic":  "Government-declared pandemic or national public health emergency",
+    "terrorism": "Act of terrorism or politically motivated violence",
+    "nuclear":   "Nuclear, chemical, or radiological incident",
+    "curfew_government": "Government-imposed curfew or Section 144 order",
+}
+
+# Textual markers that trigger exclusion detection from distress reason strings.
+# The curfew exclusion is nuanced: government-imposed curfews prevent work but are
+# categorically excluded because they are political/governance events, not weather.
+# Riders should instead contact their platform for government-mandated closure support.
+_EXCLUSION_HINTS: dict[str, list[str]] = {
+    "war":       ["war", "armed conflict", "military", "war zone"],
+    "pandemic":  ["pandemic", "lockdown covid", "national health emergency"],
+    "terrorism": ["terrorism", "bomb blast", "terror attack"],
+    "nuclear":   ["nuclear", "chemical attack", "radiation", "radiological"],
+    "curfew_government": ["section 144", "govt curfew", "government curfew", "police curfew"],
+}
+
+
+def check_exclusions(reason: str | None = None, distress_reason: str | None = None) -> tuple[bool, str]:
+    """Check if a claim involves a mandatorily excluded event.
+
+    Returns (excluded, exclusion_reason). When excluded=True, the claim MUST be
+    rejected regardless of fraud score or policy tier — these are categorical
+    exclusions under standard insurance law.
+
+    Note: 'Curfew' as a rider reason is allowed for general traffic curfews (road
+    closures due to weather/accidents). Only government-declared lockdowns / Section
+    144 curfews trigger the exclusion. Ambiguous 'Curfew' claims are NOT auto-excluded
+    — only explicitly identified government-mandate patterns are.
+    """
+    text = " ".join(filter(None, [reason, distress_reason])).lower()
+    if not text:
+        return False, ""
+
+    for excl_key, hints in _EXCLUSION_HINTS.items():
+        if any(h in text for h in hints):
+            label = _EXCLUDED_REASONS[excl_key]
+            return True, (
+                f"Claim rejected: falls under mandatory exclusion — '{label}'. "
+                f"HustleGuard Protection covers weather, AQI, and traffic disruptions only. "
+                f"This exclusion cannot be appealed."
+            )
+    return False, ""
+
+
+
+def _get_real_claim_count(db: Session, rider_id: int) -> int:
+    """Count actual claims this rider submitted in the last 30 days.
+
+    Used as a fraud signal: frequent claimants get lower trust scores.
+    Excludes appeals (claim type appeal) since those don't represent
+    new money-out events for the insurer.
+    """
+    from datetime import timedelta
+    from app.models.claim import CLAIM_TYPE_APPEAL
+    since = datetime.utcnow() - timedelta(days=30)
+    return (
+        db.query(Claim)
+        .filter(
+            Claim.rider_id == rider_id,
+            Claim.claim_type != CLAIM_TYPE_APPEAL,
+            Claim.created_at >= since,
+        )
+        .count()
+    )
+
+
+def _build_fraud_request(
+    db: Session,
+    rider_id: int,
+    zone_id: int,
+    payload,
+    claim_latitude: float | None = None,
+    claim_longitude: float | None = None,
+) -> FraudEvaluationRequest:
+    """Build a fraud evaluation request from DB-backed signals.
+
+    Priority:
+    1. Real values computed from DB (claim count, GPS mobility signals)
+    2. Values passed explicitly from the payload (set by API callers who have them)
+    3. Safe defaults (only if DB query fails or no GPS available)
+    """
+    # ── Real claim count from DB ─────────────────────────────────────────────
+    real_claim_count = _get_real_claim_count(db, rider_id)
+
+    # ── Mobility signals from the GPS log ────────────────────────────────────
+    # If the frontend provided lat/lon (via GPS), compute teleport risk.
+    teleport_distance_km = 0.5  # safe default: minor movement within zone
+    teleport_time_minutes = 2.0
+    historical_zone_visits = 5  # safe default: 5 = marginal zone familiarity
+
+    if claim_latitude is not None and claim_longitude is not None:
+        try:
+            risk = get_teleport_risk(db, rider_id, claim_latitude, claim_longitude)
+            teleport_distance_km = risk["distance_km"]
+            # Convert elapsed_seconds to minutes for the fraud model
+            teleport_time_minutes = max(0.1, risk["elapsed_seconds"] / 60.0)
+
+            # Zone familiarity — how many prior GPS pings in the claim zone?
+            current_zone = resolve_zone_from_coords(claim_latitude, claim_longitude)
+            if current_zone:
+                historical_zone_visits = get_zone_visit_count(db, rider_id, current_zone)
+        except Exception as _mobility_err:
+            # Non-fatal — log and fall back to defaults
+            logger.warning("Mobility signal lookup failed for rider=%s: %s", rider_id, _mobility_err)
+
     return FraudEvaluationRequest(
         rider_id=rider_id,
         zone_id=zone_id,
@@ -91,10 +203,12 @@ def _build_fraud_request(rider_id: int, zone_id: int, payload) -> FraudEvaluatio
         zone_dai=getattr(payload, "zone_dai", payload.current_dai if hasattr(payload, "current_dai") else 0.5),
         city_from_gps=getattr(payload, "city_from_gps", "Bangalore"),
         city_from_ip=getattr(payload, "city_from_ip", "Bangalore"),
-        historical_zone_visits=getattr(payload, "historical_zone_visits", 5),
-        claim_count_last_30_days=getattr(payload, "claim_count_last_30_days", 0),
-        teleport_distance_km=getattr(payload, "teleport_distance_km", 0.5),
-        teleport_time_minutes=getattr(payload, "teleport_time_minutes", 2.0),
+        # ── Real signals from DB ──────────────────────────────────────────────
+        historical_zone_visits=historical_zone_visits,
+        claim_count_last_30_days=real_claim_count,
+        teleport_distance_km=teleport_distance_km,
+        teleport_time_minutes=teleport_time_minutes,
+        # ── Signals passed by caller (device integrity) ───────────────────────
         peer_claims_last_15m=getattr(payload, "peer_claims_last_15m", 0),
         mock_location_detected=getattr(payload, "mock_location_detected", False),
         developer_mode_enabled=getattr(payload, "developer_mode_enabled", False),
@@ -158,6 +272,11 @@ def create_manual_distress_claim(
     Panic-button claim: rider taps 'I Can't Work' and selects one reason.
     Trust score routes to instant / provisional / hold.
     """
+    # Mandatory exclusions check — must run before policy/fraud evaluation
+    excluded, excl_reason = check_exclusions(distress_reason=payload.reason)
+    if excluded:
+        raise ValueError(excl_reason)
+
     # Policy check — passes zone conditions for the emergency waiting-period override
     allowed, reason = check_policy_allows_claim_type(
         db, payload.rider_id, "manual_distress",
@@ -168,7 +287,14 @@ def create_manual_distress_claim(
     if not allowed:
         raise ValueError(reason)
 
-    fraud_req = _build_fraud_request(payload.rider_id, payload.zone_id, payload)
+    fraud_req = _build_fraud_request(
+        db=db,
+        rider_id=payload.rider_id,
+        zone_id=payload.zone_id,
+        payload=payload,
+        claim_latitude=getattr(payload, "latitude", None),
+        claim_longitude=getattr(payload, "longitude", None),
+    )
     fraud_result = evaluate_fraud_risk(fraud_req)
 
     # Determine payout amount from rider's active policy
@@ -235,7 +361,14 @@ def create_partial_disruption_claim(
             f"Use parametric auto-claim for DAI < 0.40."
         )
 
-    fraud_req = _build_fraud_request(payload.rider_id, payload.zone_id, payload)
+    fraud_req = _build_fraud_request(
+        db=db,
+        rider_id=payload.rider_id,
+        zone_id=payload.zone_id,
+        payload=payload,
+        claim_latitude=getattr(payload, "latitude", None),
+        claim_longitude=getattr(payload, "longitude", None),
+    )
     fraud_result = evaluate_fraud_risk(fraud_req)
 
     # Get base payout from rider's plan

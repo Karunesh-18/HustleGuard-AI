@@ -8,14 +8,46 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.10
+        value: "3.11.10"
+
+      # ── Database ─────────────────────────────────────────────────────────────
       - key: DATABASE_URL
-        sync: false
+        sync: false           # set in Render dashboard → Environment
+
+      # ── CORS ─────────────────────────────────────────────────────────────────
       - key: CORS_ORIGINS
+        sync: false           # e.g. https://hustleguard.vercel.app
+
+      # ── Real-time Weather & AQI ───────────────────────────────────────────────
+      - key: OWM_API_KEY
+        sync: false           # OpenWeatherMap — openweathermap.org
+      - key: WEATHER_API_KEY
+        sync: false           # WeatherAPI.com fallback
+      - key: AQICN_TOKEN
+        sync: false           # World Air Quality Index — waqi.info
+
+      # ── Traffic ──────────────────────────────────────────────────────────────
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false           # Google Maps Routes API
+
+      # ── News / Government Alerts ──────────────────────────────────────────────
+      - key: NEWS_API_KEY
+        sync: false           # NewsAPI.org
+
+      # ── Payments ─────────────────────────────────────────────────────────────
+      - key: RAZORPAY_KEY_ID
         sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+
+      # ── Admin ─────────────────────────────────────────────────────────────────
+      - key: ADMIN_API_KEY
+        sync: false           # Bearer token for /api/v1/admin/* endpoints
+
+      # ── ML & background tasks ─────────────────────────────────────────────────
       - key: ALLOW_ML_TRAINING
-        value: "0"
+        value: "0"            # never retrain on Render (full GPU job only)
       - key: ENABLE_ZONE_REFRESH_LOOP
-        value: "0"
+        value: "1"            # enable real-time zone refresh in production
       - key: PRELOAD_ML_AT_STARTUP
-        value: "0"
+        value: "0"            # lazy-load models on first request (faster boot)

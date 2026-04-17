@@ -1,6 +1,97 @@
 # Changes
 
-## 2026-04-09 — Vercel/Render Quote Timeout Resilience
+## 2026-04-17 — Production Hardening: Mobility Fraud Signals, GPS Gates, Admin Auth, Dependency Pins & UI Polish
+
+### Backend
+
+- **`backend/app/services/claim_service.py`**: `_build_fraud_request` now accepts `db` and GPS coordinates. Computes **real fraud signals** instead of defaults:
+  - `claim_count_last_30_days` — actual DB count of rider's non-appeal claims in the last 30 days (was hardcoded `0`)
+  - `historical_zone_visits` — GPS ping count in claim zone over 30 days from `rider_location_logs` (was hardcoded `5`)
+  - `teleport_distance_km` / `teleport_time_minutes` — live haversine distance from last GPS ping (was hardcoded `0.5` / `2.0`)
+  - Added `_get_real_claim_count()` helper querying `Claim` table directly.
+  - Imports `mobility_service` — the two systems are now fully integrated.
+- **`backend/app/routers/admin.py`**: All `/api/v1/admin/*` endpoints now require `Authorization: Bearer <ADMIN_API_KEY>` header (`_require_admin` FastAPI dependency). Dev mode (no env var set) remains open so local development is unaffected. Production deployments must set `ADMIN_API_KEY`.
+- **`backend/requirements.txt`**: All 11 dependencies pinned to exact versions (`fastapi==0.115.9`, `uvicorn==0.34.0`, etc.). Added `numpy==2.2.4` explicitly (scikit-learn transitive dep that can drift). Added `aiohttp==3.11.16` for future async adapter migration.
+- **`backend/.env`**: Added `ADMIN_API_KEY=dev-admin-key-change-in-production`.
+- **`render.yaml`**: Added all 9 missing env var declarations (`OWM_API_KEY`, `WEATHER_API_KEY`, `AQICN_TOKEN`, `GOOGLE_MAPS_API_KEY`, `NEWS_API_KEY`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `ADMIN_API_KEY`). Set `ENABLE_ZONE_REFRESH_LOOP=1` for production (real APIs now configured).
+
+### Frontend
+
+- **`frontend/src/app/onboard/page.tsx`**: Wrapped in `<GPSGate context="app_open">` — GPS permission is requested at account creation, not just at claim time. First location ping is logged at registration.
+- **`frontend/src/app/(app)/apply/page.tsx`**: Fixed pre-existing syntax error (bare `try` without `catch`).
+- **`frontend/src/app/globals.css`** — Full UI polish (v2):
+  - **Accessibility**: All interactive elements ≥ 44px (WCAG 2.5.5). Global `:focus-visible` ring on every button, input, and link. Screen reader-safe `form-error` with `⚠` prefix.
+  - **Contrast**: `--text-secondary` raised from `#7B7FA6` → `#9CA3C4`; `--text-tertiary` from `#4B4F6B` → `#5C6080`.
+  - **Card elevation system**: 3 levels — `.card` (Level 1), `.card-raised` (Level 2), `.card-float` (modals/dropdowns).
+  - **Bottom nav**: Redesigned with active glow indicator dot, `brand-muted` icon background on active, `+4px` height, blurred background.
+  - **Panic button**: Larger tap target (60px), pulsing glow animation when a reason is selected, proper disabled state.
+  - **Form inputs**: Taller (48px), hover state, higher-contrast placeholder.
+  - **Shimmer**: GPU-composited via `::after` pseudo-element + `will-change`.
+  - **Wizard page**: Subtle radial gradient background — visually richer onboarding.
+  - **`@media (prefers-reduced-motion: reduce)`**: All animations stripped for users who need it.
+  - New utility classes: `.info-banner`, `.warning-banner`, `.grid-auto`, `.card-float`, `.divider-md`.
+
+---
+
+## 2026-04-17 — Phase 3: Payment Persistence, Exclusions UI & Live Data Badges
+
+### Backend
+
+- **`backend/app/services/payment_service.py`**: Refactored to read Razorpay keys lazily (inside functions) instead of at module import time, preventing key-read ordering issues on startup. Switched signature verification from manual HMAC to the official Razorpay SDK `utility.verify_payment_signature()` for future-proof compliance.
+- **`backend/app/routers/payments.py`**: `POST /api/v1/payments/verify` now **auto-subscribes** the rider to their policy after a successful payment (`purpose == "premium"` + `policy_name` provided). Waiting period is waived (payment = proof of good faith). Returns `policy_activated: bool` so the frontend can skip a redundant subscribe call.
+- **`backend/app/services/external_data/aqi_adapter.py`**: Added explicit demo-token detection — logs a clear warning once per process pointing to the AQICN token registration page. Added `overQuota` error classification with a specific log message.
+- **`backend/app/routers/policies.py`**: New `GET /api/v1/policies/exclusions` endpoint returns the 5 mandatory IRDAI exclusions in machine-readable JSON (id, icon, label) for the frontend plan picker.
+
+### Frontend
+
+- **`frontend/src/hooks/useRazorpay.ts`**: Added `policy_name` to `CheckoutOptions`; it is passed through the backend `/verify` call so the server can auto-subscribe immediately after payment without a separate frontend API call.
+- **`frontend/src/app/(app)/apply/page.tsx`**: Updated `openCheckout` call to include `policy_name`. Fallback subscribe call retained in case auto-subscribe fails (e.g., DB hiccup after payment).
+- **`frontend/src/components/claims/ManualDistressPanel.tsx`**: Fixed hardcoded `zone_id: 1` — now resolves the correct zone ID by fetching `/api/v1/zones` and matching on `zone.zone_name`. Falls back to `1` only if the zones API is unavailable.
+- **`frontend/src/components/PlanSelector.tsx`**: Added collapsible **"What's NOT covered"** section at the bottom of each plan card, listing the 5 mandatory IRDAI exclusions with icons. State is per-plan so toggling one doesn't affect others. Static (no extra API call — same for all tiers).
+- **`frontend/src/app/(app)/home/page.tsx`**: 
+  - Zone network strip now shows a green `LIVE` badge on zones served by real API data.
+  - Hero zone card now shows `● LIVE DATA` / `◌ SIMULATED` badge.
+  - Temperature, dominant pollutant, and weather description now shown when real API data is available.
+  - Traffic row shows actual speed (km/h) instead of congestion index when available.
+- **`frontend/src/types/index.ts`**: Added Phase 3 fields to `ZoneLiveData` type: `data_source`, `temperature_celsius`, `dominant_pollutant`, `traffic_speed_kmh`, `weather_description`.
+
+---
+
+## 2026-04-17 — Real-Time API Integrations & Insurance Domain Compliance
+
+### Real-Time Data Sources
+
+- **`backend/.env`**: Set `AQICN_TOKEN=demo` — enables the AQICN/WAQI adapter to fetch live AQI data for Bangalore using the public demo token. Replace with a production token from `aqicn.org/data-platform/token/` before production deployment.
+- **`backend/app/services/domain_service.py`**: `get_zone_live_data()` now calls `refresh_all_zones()` (real-time API fetch) when the ZoneSnapshot table is empty instead of seeding hardcoded demo data. The hardcoded `_DEMO_ZONES` constant is kept as absolute last-resort fallback only.
+- **Zone refresh loop** in `main.py` already polls OpenWeatherMap, WeatherAPI, AQICN, and Google Maps every 5 minutes. Now the first warm-up is also real-API powered.
+
+### New: Live News Alerts API
+
+- **`backend/app/routers/alerts.py`** (NEW): `GET /api/v1/alerts` — returns live Bangalore disruption alerts from NewsAPI with severity classification (high / medium / info). `GET /api/v1/alerts/status` returns provider metadata and cache TTL.
+- **`backend/main.py`**: Registered `alerts.router` so the endpoint is live.
+- **`frontend/src/app/(app)/alerts/page.tsx`**: Upgraded from a single-view zone status page to a two-tab interface:
+  - **Zone Status tab**: DAI-based disruption/watch/clear buckets (existing).
+  - **News Alerts tab**: Real NewsAPI articles about Bangalore floods, NDMA alerts, rain, and traffic disruptions. Links to original article. Empty state gracefully shown when no matching news in 24h.
+
+### Mandatory Insurance Domain Exclusions
+
+- **`backend/app/services/claim_service.py`**: Added `_EXCLUDED_REASONS`, `_EXCLUSION_HINTS`, and `check_exclusions()` — implements IRDAI Master Circular 2023 §4 General Exclusions for all claim types.
+  - **Excluded events**: War & armed conflict, Government-declared pandemic, Terrorism & political violence, Nuclear/chemical/radiological incidents, Government-imposed curfew (Section 144 / police order).
+  - Applied to `create_manual_distress_claim()` _before_ fraud evaluation — excluded reasons are rejected immediately with a clear non-appealable message.
+  - Standard weather "Curfew" (road closure due to flooding/accident) is NOT excluded; only explicit government-mandate patterns trigger the block.
+
+### New: Policy Document Endpoint
+
+- **`backend/app/routers/policies.py`**: `GET /api/v1/policies/document` — returns a machine-readable policy document including:
+  - Coverage triggers (per tier: DAI, rainfall, AQI thresholds)
+  - Covered events list
+  - All 5 mandatory exclusions with legal detail text
+  - Payout process breakdown (parametric/manual/partial/community/appeal)
+  - Waiting period schedule with emergency override rule
+  - Data source attribution
+
+### Changes.md (this file) Updated
+
 
 ### Frontend API Reliability
 - **`frontend/src/lib/api.ts`**: Reworked client timeout handling to be environment-aware. Default timeout is now `45s` in production (still `12s` in local dev) to tolerate Render cold starts.

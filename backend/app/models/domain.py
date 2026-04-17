@@ -40,6 +40,13 @@ class ZoneSnapshot(Base):
     workability_score = Column(Integer, nullable=False)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Phase 3 — real API enrichment fields (nullable for backward compat)
+    # "real" when fetched from live APIs, "simulated" when using the simulation layer
+    data_source = Column(String, nullable=True, default="simulated")
+    temperature_celsius = Column(Float, nullable=True)     # from OWM / WeatherAPI
+    dominant_pollutant = Column(String, nullable=True)     # from AQICN (e.g. "pm25")
+    traffic_speed_kmh = Column(Float, nullable=True)       # from Google Maps
+
 
 class PayoutEvent(Base):
     __tablename__ = "payout_events"

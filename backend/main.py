@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app import models as _models
 from app import database as app_database
 from app.database import Base
-from app.routers import admin, claims, domain, fraud, health, ml, payments, policies, users, triggers
+from app.routers import admin, alerts, claims, domain, fraud, health, ml, mobility, payments, policies, users, triggers
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +151,8 @@ app.include_router(triggers.router)
 app.include_router(policies.router)
 app.include_router(payments.router)
 app.include_router(admin.router)
+app.include_router(alerts.router)
+app.include_router(mobility.router)
 
 
 # ─── Bare /zones/live-data and /payouts/recent aliases ─────────────────────

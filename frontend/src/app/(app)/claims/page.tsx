@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { submitManualDistressClaim, getZoneLiveData } from "@/lib/api";
 import type { ZoneLiveData } from "@/types";
 import { CloudRainIcon, CarIcon, LockIcon, HelpCircleIcon, SosIcon, ZapIcon, ClockIcon, ActivityIcon } from "@/components/Icon";
+import GPSGate from "@/components/GPSGate";
+import { useGPS } from "@/hooks/useGPS";
 
 const REASONS = [
   { value: "Rain",    Icon: CloudRainIcon, label: "Heavy Rain" },
@@ -30,13 +32,17 @@ function CountdownBar({ seconds }: { seconds: number }) {
 
 type Rider = { id?: number; name?: string; home_zone?: string };
 
-export default function ClaimsPage() {
+// Inner component — only rendered after GPS is granted
+function ClaimsPageInner() {
   const [reason, setReason] = useState<Reason | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ decision: string; estimated_payout_seconds: number; trust_score: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rider, setRider] = useState<Rider | null>(null);
   const [zones, setZones] = useState<ZoneLiveData[]>([]);
+
+  // GPS position — already granted by the gate, used to log claim context
+  const { position } = useGPS({ riderId: rider?.id, context: "claim" });
 
   // Load rider from localStorage and fetch live zone data for real conditions
   useEffect(() => {
@@ -146,6 +152,22 @@ export default function ClaimsPage() {
         </div>
       </div>
 
+      {/* GPS location badge — shows rider's detected zone */}
+      {position && (
+        <div style={{
+          padding: "6px 12px", borderRadius: "var(--radius-md)", fontSize: "0.75rem",
+          background: "rgba(6,214,160,0.07)", border: "1px solid rgba(6,214,160,0.2)",
+          display: "flex", alignItems: "center", gap: 8, color: "var(--accent)",
+        }}>
+          <span>📍</span>
+          <span>
+            GPS: {position.latitude.toFixed(4)}, {position.longitude.toFixed(4)}
+            {position.accuracy < 100 && ` · ±${Math.round(position.accuracy)}m`}
+          </span>
+          <span style={{ marginLeft: "auto", fontWeight: 700 }}>VERIFIED</span>
+        </div>
+      )}
+
       {/* Live zone conditions badge */}
       {homeZoneData && (
         <div style={{
@@ -216,9 +238,24 @@ export default function ClaimsPage() {
           <ActivityIcon size={14} color="var(--text-secondary)" />
           <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>How it works</span>
         </div>
-        Our fraud engine evaluates your claim in real-time against weather, AQI, and peer signals.
+        Our fraud engine evaluates your claim in real-time against weather, AQI, GPS location, and peer signals.
         Trust score &ge; 80 triggers an instant payout in approximately 47 seconds.
       </div>
     </div>
+  );
+}
+
+export default function ClaimsPage() {
+  // Parse rider for GPS gate logging
+  let riderId: number | undefined;
+  try {
+    const raw = typeof window !== "undefined" ? localStorage.getItem("hg_rider") : null;
+    if (raw) riderId = (JSON.parse(raw) as { id?: number }).id;
+  } catch { /* ignore */ }
+
+  return (
+    <GPSGate riderId={riderId} context="claim">
+      <ClaimsPageInner />
+    </GPSGate>
   );
 }

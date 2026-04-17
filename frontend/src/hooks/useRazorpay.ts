@@ -33,6 +33,7 @@ export type CheckoutOptions = {
   amount_inr: number;
   rider_id: number;
   purpose?: string;
+  policy_name?: string;   // if set + purpose=="premium", backend auto-subscribes
   name?: string;
   email?: string;
   description?: string;
@@ -161,6 +162,8 @@ export function useRazorpay() {
                     razorpay_signature:  response.razorpay_signature,
                     rider_id: opts.rider_id,
                     amount_inr: opts.amount_inr,
+                    purpose: opts.purpose ?? "premium",
+                    policy_name: opts.policy_name ?? null,
                   }),
                 });
                 if (!verRes.ok) {
